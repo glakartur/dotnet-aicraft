@@ -1,49 +1,37 @@
 ---
 name: dotnet-aicraft
 description: >
-  Roslyn-powered semantic code intelligence for .NET solutions (.sln / .csproj) via the `dotnet aicraft`
-  CLI — compiler-precise answers about symbols, references, call graphs, implementations, diagnostics,
-  renames, and dead code. A background daemon keeps the solution loaded, so queries return in ~50ms.
+  Roslyn-powered semantic code intelligence for .NET solutions via the `dotnet aicraft` CLI — compiler-precise
+  answers about symbols, references, call graphs, implementations, renames, dead code, and diagnostics.
+  Background daemon keeps the solution loaded; queries return in ~50ms.
 
-  LOAD THIS SKILL EAGERLY — do not skip it. If there is even a hint that the work touches a .NET / C# /
-  F# / VB.NET codebase (a .sln, .csproj, .cs, .vb, .fs file is visible, mentioned, or in scope), load this
-  skill BEFORE reaching for grep, Glob, ripgrep, Read, or any text search. Text search misses interface
-  dispatch, virtual/override calls, extension methods, generics, partial classes, renamed locals, and XML
-  doc references — `dotnet aicraft` finds them all.
+  LOAD EAGERLY whenever .NET / C# / F# / VB.NET code is in scope (any .sln, .csproj, .cs, .vb, .fs file
+  visible or mentioned) — BEFORE reaching for grep/Glob/ripgrep/Read. Text search misses interface dispatch,
+  virtual/override calls, extension methods, generics, partial classes, renamed locals, and XML doc refs.
 
-  Use this skill for ANY of the operations it supports:
-    • refs            — find ALL references / usages / call sites of a symbol
-    • callers         — incoming/outgoing call graph, configurable depth
-    • definition      — jump to declaration (from file+line+col or from FQN)
-    • impls           — find all implementations of an interface or overrides of a virtual/abstract member
-    • rename          — safe semantic rename across the whole solution (always with --dry-run first)
-    • symbols         — pattern search for classes/interfaces/methods/properties/fields/etc. + FQN discovery
-    • unused          — detect dead code / unused methods / unused classes / unused members
-    • diagnostics     — Roslyn compiler diagnostics (errors, warnings) per solution/project/file
+  Supported operations:
+    • refs         — all references / usages / call sites of a symbol
+    • callers      — incoming/outgoing call graph (configurable depth)
+    • definition   — jump to declaration (from file+line+col or FQN)
+    • impls        — implementations of an interface, overrides of virtual/abstract members
+    • rename       — safe solution-wide semantic rename (always --dry-run first)
+    • symbols      — pattern search across classes/interfaces/methods/properties/fields + FQN discovery
+    • unused       — dead code: unused methods/classes/members
+    • diagnostics  — Roslyn errors/warnings per solution/project/file
 
-  Load PROACTIVELY when:
-    - onboarding to or exploring an unfamiliar .NET codebase
-    - about to modify, move, delete, or rename any method, class, interface, struct, enum, property, field, or event
-    - planning ANY refactoring in .NET code
-    - assessing blast radius / impact before a change
-    - checking whether something is safe to delete
-    - navigating inheritance, interface hierarchies, or call chains
-    - resolving a symbol's declaration from a usage site
-    - investigating compile errors or warnings
-    - hunting for dead / unreachable / unused code
-    - looking up a symbol by partial or fuzzy name
+  Load PROACTIVELY when: onboarding to a .NET codebase; modifying/moving/deleting/renaming any symbol;
+  planning a refactor; assessing blast radius; checking deletion safety; navigating inheritance or call
+  chains; resolving a declaration from a usage; investigating compile errors; hunting dead code; or
+  looking up a symbol by partial name.
 
-  Trigger on user phrasing such as: "find references", "find all usages", "who calls X", "what calls X",
-  "what does X call", "where is X defined", "where is X declared", "go to definition", "find implementations",
-  "find implementors", "what implements X", "rename this", "rename symbol", "is this used", "is X used anywhere",
-  "can I delete this", "is this dead code", "find unused code", "list unused methods", "search symbols",
-  "find a class named", "find a method called", "show me the call graph", "incoming callers", "outgoing calls",
-  "compiler errors", "Roslyn diagnostics".
+  Trigger phrases: "find references/usages", "who/what calls X", "what does X call", "where is X
+  defined/declared", "go to definition", "find implementations/implementors", "what implements X",
+  "rename symbol", "is X used", "can I delete this", "is this dead code", "find unused code",
+  "search symbols", "call graph", "incoming/outgoing callers", "compiler errors", "Roslyn diagnostics".
 
-  ALWAYS prefer `dotnet aicraft` over grep / Glob / ripgrep / file-reading for any symbol-level question in
-  a .NET project — it is faster, exhaustive, and semantically correct. Falling back to text search is only
-  acceptable for non-semantic discovery (free text in comments, config files, markdown).
-version: 0.6.0
+  ALWAYS prefer `dotnet aicraft` over grep/Glob/ripgrep/Read for any symbol-level question in a .NET
+  project. Fall back to text search only for non-semantic content (comments, configs, markdown).
+version: 0.6.1
 ---
 
 # dotnet-aicraft
