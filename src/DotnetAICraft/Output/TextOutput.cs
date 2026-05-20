@@ -9,9 +9,6 @@ public static class TextOutput
     private static string OneLine(string? s)
         => s is null ? string.Empty : s.Replace("\r\n", " ").Replace("\n", " ").Replace("\r", " ");
 
-    private static string Pluralize(int count, string singular, string plural)
-        => count == 1 ? singular : plural;
-
     // ── Envelope header ──────────────────────────────────────────────────────
     public static void WriteSolutionRootHeader(string absoluteSolutionDir)
     {
@@ -19,13 +16,24 @@ public static class TextOutput
         Console.Out.WriteLine();
     }
 
+    private static void WriteSectionLabel(string label, string? annotation)
+    {
+        if (annotation is null)
+            Console.Out.WriteLine($"{label}:");
+        else
+            Console.Out.WriteLine($"{label}: ({annotation})");
+    }
+
     // ── Refs ─────────────────────────────────────────────────────────────────
     public static void WriteRefs(IReadOnlyList<ReferenceResult> items, string target, string solution)
     {
-        var word = Pluralize(items.Count, "reference", "references");
-        Console.Out.WriteLine($"{items.Count} {word} to {target} in {solution}");
-        if (items.Count == 0) return;
-        Console.Out.WriteLine();
+        _ = target; _ = solution;
+        if (items.Count == 0)
+        {
+            WriteSectionLabel("references", "no results");
+            return;
+        }
+        WriteSectionLabel("references", null);
         foreach (var r in items)
             Console.Out.WriteLine($"{r.File}:{r.Line}:{r.Col}: {OneLine(r.Context)}");
     }
@@ -33,10 +41,13 @@ public static class TextOutput
     // ── Impls ────────────────────────────────────────────────────────────────
     public static void WriteImpls(IReadOnlyList<SymbolResult> items, string target, string solution)
     {
-        var word = Pluralize(items.Count, "implementation", "implementations");
-        Console.Out.WriteLine($"{items.Count} {word} of {target} in {solution}");
-        if (items.Count == 0) return;
-        Console.Out.WriteLine();
+        _ = target; _ = solution;
+        if (items.Count == 0)
+        {
+            WriteSectionLabel("implementations", "no results");
+            return;
+        }
+        WriteSectionLabel("implementations", null);
         foreach (var s in items)
             Console.Out.WriteLine($"{s.File}:{s.Line}:{s.Col}: {s.Kind} {s.FullName}");
     }
@@ -44,34 +55,127 @@ public static class TextOutput
     // ── Callers ──────────────────────────────────────────────────────────────
     public static void WriteCallers(CallGraphResult result, string target, string solution)
     {
+        _ = target; _ = solution;
         var nodeById = result.Nodes.ToDictionary(n => n.Id);
-        // Number of "caller" rows = number of edges
-        var count = result.Edges.Count;
-        var word = Pluralize(count, "caller", "callers");
-        Console.Out.WriteLine($"{count} {word} of {target} in {solution}");
-        if (count == 0) return;
-        Console.Out.WriteLine();
+        var dir = result.Direction ?? "incoming";
+
+        if (string.Equals(dir, "outgoing", StringComparison.OrdinalIgnoreCase))
+        {
+            WriteCallSection(result, nodeById, "callees", "outgoing");
+        }
+        else if (string.Equals(dir, "both", StringComparison.OrdinalIgnoreCase))
+        {
+            WriteCallSection(result, nodeById, "callers", "incoming");
+            WriteCallSection(result, nodeById, "callees", "outgoing");
+        }
+        else
+        {
+            WriteCallSection(result, nodeById, "callers", "incoming");
+        }
+    }
+
+    private static void WriteCallSection(
+        CallGraphResult result,
+        Dictionary<string, CallGraphNode> nodeById,
+        string label,
+        string relation)
+    {
+        // Build parent -> children map from edges matching this relation only.
+        // For "outgoing" edges, parent = From; for "incoming", parent = To
+        // (the node closer to the root). Edges are pre-sorted in DaemonServer,
+        // so insertion order is deterministic.
+        var children = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var e in result.Edges)
         {
-            // Render the "other side" of the edge depending on direction.
-            // For incoming (callers): show From; for outgoing (callees): show To.
-            var otherId = string.Equals(result.Direction, "outgoing", StringComparison.OrdinalIgnoreCase) ? e.To : e.From;
-            if (!nodeById.TryGetValue(otherId, out var node))
+            if (!string.Equals(e.Relation, relation, StringComparison.OrdinalIgnoreCase))
                 continue;
-            Console.Out.WriteLine($"{node.File}:{node.Line}:{node.Col}: {node.Kind} {node.FullName}");
+
+            string parentId, childId;
+            if (string.Equals(relation, "outgoing", StringComparison.OrdinalIgnoreCase))
+            {
+                parentId = e.From;
+                childId = e.To;
+            }
+            else
+            {
+                parentId = e.To;
+                childId = e.From;
+            }
+
+            if (!children.TryGetValue(parentId, out var list))
+            {
+                list = new List<string>();
+                children[parentId] = list;
+            }
+            list.Add(childId);
         }
+
+        var rows = new List<string>();
+        var descendantCount = 0;
+        if (nodeById.ContainsKey(result.RootId) &&
+            children.TryGetValue(result.RootId, out var rootChildren))
+        {
+            // pathIds starts with the root so a child pointing back to the root
+            // is detected as a cycle and rendered with a marker.
+            var pathIds = new HashSet<string>(StringComparer.Ordinal) { result.RootId };
+            foreach (var childId in rootChildren)
+                WriteCallersDfs(childId, 0, nodeById, children, pathIds, rows, ref descendantCount);
+        }
+
+        if (descendantCount == 0)
+        {
+            WriteSectionLabel(label, "no results");
+            return;
+        }
+        WriteSectionLabel(label, null);
+        foreach (var row in rows)
+            Console.Out.WriteLine(row);
+    }
+
+    private static void WriteCallersDfs(
+        string nodeId,
+        int depth,
+        Dictionary<string, CallGraphNode> nodeById,
+        Dictionary<string, List<string>> children,
+        HashSet<string> pathIds,
+        List<string> rows,
+        ref int descendantCount)
+    {
+        if (!nodeById.TryGetValue(nodeId, out var node)) return;
+
+        var indent = new string(' ', depth * 2);
+        var line = $"{indent}{node.File}:{node.Line}:{node.Col}: {node.Kind} {node.FullName}";
+
+        // Cycle: node already on the active root-to-here path. Emit the row
+        // with a marker and stop descending.
+        if (pathIds.Contains(nodeId))
+        {
+            rows.Add(line + " (cycle)");
+            descendantCount++;
+            return;
+        }
+
+        rows.Add(line);
+        descendantCount++;
+
+        if (!children.TryGetValue(nodeId, out var childIds)) return;
+
+        pathIds.Add(nodeId);
+        foreach (var childId in childIds)
+            WriteCallersDfs(childId, depth + 1, nodeById, children, pathIds, rows, ref descendantCount);
+        pathIds.Remove(nodeId);
     }
 
     // ── Symbols ──────────────────────────────────────────────────────────────
     public static void WriteSymbols(SymbolsResultPage page, string pattern, string solution)
     {
-        var word = Pluralize(page.Items.Count, "symbol", "symbols");
-        var header = $"{page.Items.Count} {word} matching {pattern} in {solution}";
-        if (page.HasMore)
-            header += " (more available — use --offset to continue)";
-        Console.Out.WriteLine(header);
-        if (page.Items.Count == 0) return;
-        Console.Out.WriteLine();
+        _ = pattern; _ = solution;
+        if (page.Items.Count == 0)
+        {
+            WriteSectionLabel("symbols", "no results");
+            return;
+        }
+        WriteSectionLabel("symbols", page.HasMore ? "more available — use --offset to continue" : null);
         foreach (var s in page.Items)
             Console.Out.WriteLine($"{s.File}:{s.Line}:{s.Col}: {s.Kind} {s.FullName}");
     }
@@ -79,13 +183,16 @@ public static class TextOutput
     // ── Unused ───────────────────────────────────────────────────────────────
     public static void WriteUnused(UnusedScanSummary summary, string solution)
     {
-        var word = Pluralize(summary.Items.Count, "candidate", "candidates");
+        _ = solution;
         var publicOnly = summary.PublicOnly ? "true" : "false";
         var includeGenerated = summary.IncludeGenerated ? "true" : "false";
-        Console.Out.WriteLine(
-            $"{summary.Items.Count} unused {summary.Kind} {word} (scanned {summary.Scanned}, publicOnly={publicOnly}, includeGenerated={includeGenerated}) in {solution}");
-        if (summary.Items.Count == 0) return;
-        Console.Out.WriteLine();
+        var filters = $"scanned {summary.Scanned}, publicOnly={publicOnly}, includeGenerated={includeGenerated}";
+        if (summary.Items.Count == 0)
+        {
+            WriteSectionLabel("unused", $"no results, {filters}");
+            return;
+        }
+        WriteSectionLabel("unused", filters);
         foreach (var u in summary.Items)
         {
             var conf = u.Confidence.ToString("0.##", CultureInfo.InvariantCulture);
@@ -96,25 +203,24 @@ public static class TextOutput
     // ── Definition ───────────────────────────────────────────────────────────
     public static void WriteDefinition(DefinitionResult def, string solution)
     {
-        Console.Out.WriteLine(def.FullName);
-        Console.Out.WriteLine();
-        Console.Out.WriteLine($"Kind: {def.Kind}");
+        _ = solution;
+        WriteSectionLabel("definition", null);
         if (def.File is not null && def.Line is not null && def.Col is not null)
-            Console.Out.WriteLine($"Location: {def.File}:{def.Line}:{def.Col}");
+            Console.Out.WriteLine($"{def.File}:{def.Line}:{def.Col}: {def.Kind} {def.FullName}");
+        else
+            Console.Out.WriteLine($"{def.Kind} {def.FullName}");
     }
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
     public static void WriteDiagnostics(IReadOnlyList<DiagnosticResult> items, string solution)
     {
-        int errors = 0, warnings = 0;
-        foreach (var d in items)
+        _ = solution;
+        if (items.Count == 0)
         {
-            if (string.Equals(d.Severity, "error", StringComparison.OrdinalIgnoreCase)) errors++;
-            else if (string.Equals(d.Severity, "warning", StringComparison.OrdinalIgnoreCase)) warnings++;
+            WriteSectionLabel("diagnostics", "no results");
+            return;
         }
-        Console.Out.WriteLine($"{errors} errors, {warnings} warnings");
-        if (items.Count == 0) return;
-        Console.Out.WriteLine();
+        WriteSectionLabel("diagnostics", null);
         foreach (var d in items)
         {
             var sev = d.Severity?.ToLowerInvariant() ?? string.Empty;
@@ -128,7 +234,7 @@ public static class TextOutput
     // ── Rename ───────────────────────────────────────────────────────────────
     public static void WriteRename(RenameResult result, string solution)
     {
-        var word = Pluralize(result.Changes.Count, "change", "changes");
+        var word = result.Changes.Count == 1 ? "change" : "changes";
         var status = result.Applied ? "applied" : "dry-run";
         Console.Out.WriteLine(
             $"{result.Changes.Count} {word} for {result.Symbol} -> {result.NewName} ({status}) in {solution}");

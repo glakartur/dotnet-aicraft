@@ -31,7 +31,7 @@ public static class DiagnosticsCommand
             Description = "Optional file path filter"
         };
 
-        var cmd = new Command("diagnostics", "List Roslyn diagnostics in JSON format")
+        var cmd = new Command("diagnostics", "List Roslyn compiler diagnostics across the solution")
         {
             solutionOption, severityOpt, projectOpt, fileOpt, idleTimeoutOption
         };

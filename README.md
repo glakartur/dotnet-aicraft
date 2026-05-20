@@ -205,7 +205,7 @@ dotnet aicraft impls --solution App.sln --symbol "MyApp.Interfaces.IOrderProcess
 ### Find callers/callees of a method (call graph)
 
 ```bash
-# Backward-compatible mode (incoming callers, depth=1)
+# Incoming callers, depth=1 (default)
 dotnet aicraft callers --solution App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
 
 # Outgoing callees

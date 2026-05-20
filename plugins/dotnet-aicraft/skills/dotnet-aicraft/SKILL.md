@@ -62,9 +62,9 @@ Use the `fullName` field from the result in all follow-up commands.
 Commands emit a **compiler/ripgrep-style text format on stdout by default** — optimized for LLM reading.
 
 ```
-12 references to MyApp.Services.OrderService.ProcessOrder in App.sln
 SolutionRoot: /abs/path/to/repo
 
+references:
 src/Controllers/OrderController.cs:87:9: _orderService.ProcessOrder(dto.ToRequest());
 ```
 
@@ -74,7 +74,7 @@ File paths in results are **relative to the solution directory** with forward-sl
 - In `--format text`: a `SolutionRoot: <abs path>` header line.
 - In `--format json`: a top-level `solutionRoot` field on the envelope.
 
-For list-shaped results (`refs`, `impls`, `callers`, `symbols`, `diagnostics`, `unused`) the JSON envelope is `{ "solutionRoot": "...", "items": [...] }` — the list lives under `items`, not as a top-level array.
+For list-shaped results (`refs`, `impls`, `symbols`, `diagnostics`, `unused`) the JSON envelope is `{ "solutionRoot": "...", "items": [...] }` — the list lives under `items`, not as a top-level array.
 
 ## When to Use Proactively
 
@@ -122,9 +122,9 @@ dotnet aicraft refs -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrde
 Output (`--format json`): `{ solutionRoot, items: [{ file, line, col, context }] }`
 Output (`--format text`, default):
 ```
-12 references to MyApp.Services.OrderService.ProcessOrder in App.sln
 SolutionRoot: /abs/path/to/repo
 
+references:
 src/Controllers/OrderController.cs:87:9: _orderService.ProcessOrder(...);
 ...
 ```
@@ -167,9 +167,7 @@ dotnet aicraft callers -s App.sln --symbol "MyApp.Services.OrderService.ProcessO
 dotnet aicraft callers -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder" --direction both --depth 2
 ```
 
-Output:
-- `incoming + depth=1`: `[{ callerSymbol, isDirect, file, line, col, context }]`
-- otherwise: `CallGraphResult { rootId, direction, depth, nodes[], edges[] }`
+Output: `CallGraphResult { rootId, direction, depth, nodes[], edges[] }`
 
 ### diagnostics — Roslyn Diagnostics
 

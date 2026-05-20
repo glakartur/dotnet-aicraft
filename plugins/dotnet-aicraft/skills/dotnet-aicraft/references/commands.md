@@ -20,7 +20,7 @@ solution root is surfaced once per response:
 - `--format text` — a `SolutionRoot: <abs path>` header line near the top.
 - `--format json` — a top-level `solutionRoot` field on the envelope.
 
-For commands that return lists (`refs`, `impls`, `callers`, `symbols`,
+For commands that return lists (`refs`, `impls`, `symbols`,
 `diagnostics`, `unused`), the JSON envelope is:
 
 ```json
@@ -78,11 +78,17 @@ dotnet aicraft refs --solution App.sln \
 ### Output (`--format text`, default)
 
 ```
-12 references to MyApp.Services.OrderService.ProcessOrder in App.sln
 SolutionRoot: /abs/path/to/repo
 
+references:
 src/Controllers/OrderController.cs:87:9: _orderService.ProcessOrder(dto.ToRequest());
 ```
+
+All list-shaped commands (`refs`, `impls`, `callers`, `symbols`, `unused`,
+`diagnostics`, `definition`) follow the same envelope: a `SolutionRoot:` header,
+a blank line, then a `<label>:` row (optionally with a parenthesized annotation
+such as `(no results)`, `(more available — use --offset to continue)`, or
+filter metadata for `unused`) followed by the data rows.
 
 ---
 
@@ -208,9 +214,8 @@ Find all implementations of an interface or abstract member.
 
 ## `dotnet aicraft callers`
 
-Find call sites that invoke a method (call hierarchy). Default is incoming
-callers at depth 1 (legacy flat list). Other directions/depths return a full
-call graph.
+Find call sites that invoke a method (call hierarchy). Always returns a
+`CallGraphResult` graph regardless of direction or depth.
 
 ### Options
 
@@ -227,11 +232,15 @@ call graph.
 ### Examples
 
 ```bash
-# Backward-compatible flat list (incoming, depth=1)
+# Incoming callers, depth=1 (default) — by name
 dotnet aicraft callers --solution App.sln \
   --symbol "MyApp.Services.OrderService.ProcessOrder"
 
-# Full graph
+# Incoming callers, depth=1 — by file location
+dotnet aicraft callers --solution App.sln \
+  --file src/Services/OrderService.cs --line 42 --col 18
+
+# Full graph — both directions, depth 2
 dotnet aicraft callers --solution App.sln \
   --symbol "MyApp.Services.OrderService.ProcessOrder" \
   --direction both --depth 2
@@ -239,21 +248,24 @@ dotnet aicraft callers --solution App.sln \
 
 ### Output Schema (`--format json`)
 
-`incoming + depth=1` (legacy flat list):
+All invocations return `CallGraphResult`:
 
 ```json
 {
   "solutionRoot": "/abs/path",
-  "items": [
-    { "callerSymbol": "MyApp.Controllers.OrderController.Post",
-      "isDirect": true,
-      "file": "src/Controllers/OrderController.cs", "line": 55, "col": 18,
-      "context": "await _service.ProcessOrder(request);" }
+  "rootId": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+  "direction": "incoming",
+  "depth": 1,
+  "nodes": [
+    { "id": "MyApp.Services.OrderService.ProcessOrder(...)", "fullName": "...", "kind": "method",
+      "file": "src/Services/OrderService.cs", "line": 42, "col": 18,
+      "containingType": "MyApp.Services.OrderService", "containingNamespace": "MyApp.Services" }
+  ],
+  "edges": [
+    { "from": "MyApp.Controllers.OrderController.Post(...)", "to": "MyApp.Services.OrderService.ProcessOrder(...)",
+      "relation": "incoming", "isDirect": true }
   ]
 }
-```
-
-Other directions/depths return `CallGraphResult { rootId, direction, depth, nodes[], edges[] }`.
 
 ---
 
@@ -325,9 +337,9 @@ dotnet aicraft diagnostics --solution App.sln --project MyApp.Core --file src/Se
 ### Output (`--format text`, MSBuild-style)
 
 ```
-3 errors, 17 warnings
 SolutionRoot: /abs/path
 
+diagnostics:
 error src/Bar.cs:88:1 [CS0103]: The name 'foo' does not exist in the current context
 warning src/Foo.cs:42:5 [CS0168]: The variable 'x' is declared but never used
 ```

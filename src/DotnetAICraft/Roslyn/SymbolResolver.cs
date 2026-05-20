@@ -83,9 +83,7 @@ public static class SymbolResolver
                 SymbolFilter.All, ct);
 
             var match = symbols.FirstOrDefault(s =>
-                s.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-                 .Replace("global::", "")
-                 .Equals(fullName, StringComparison.Ordinal));
+                BuildComparableFqn(s).Equals(fullName, StringComparison.Ordinal));
 
             if (match is not null)
                 return match;
@@ -95,6 +93,22 @@ public static class SymbolResolver
             $"Symbol '{fullName}' not found in any project in the solution.\n" +
             $"Tip: use the fully qualified name, e.g. 'MyApp.Services.OrderService.ProcessOrder'.",
             nameof(fullName));
+    }
+
+    // FullyQualifiedFormat on member symbols (methods, properties, fields, events) returns only the
+    // simple name, not the containing-type path. Build the comparable FQN from the containing type.
+    private static string BuildComparableFqn(ISymbol s)
+    {
+        if (s.ContainingType is not null &&
+            s.Kind is SymbolKind.Method or SymbolKind.Property or SymbolKind.Field or SymbolKind.Event)
+        {
+            var typeFqn = s.ContainingType
+                .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                .Replace("global::", "");
+            return typeFqn + "." + s.Name;
+        }
+
+        return s.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
     }
 
     /// <summary>
