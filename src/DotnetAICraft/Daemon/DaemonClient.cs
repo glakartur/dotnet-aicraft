@@ -49,20 +49,56 @@ public sealed class DaemonClient : IAsyncDisposable
         }
     }
 
-    public static async Task<DaemonClient> ConnectOrStartAsync(
+    internal static readonly TimeSpan DefaultFirstNoticeAfter = TimeSpan.FromSeconds(10);
+    internal static readonly TimeSpan DefaultSecondNoticeAfter = TimeSpan.FromSeconds(90);
+    internal const string FirstNoticeMessage = "first-run startup (can take a while)";
+    internal const string SecondNoticeMessage = "taking longer than expected";
+
+    public static Task<DaemonClient> ConnectOrStartAsync(
         string solutionPath,
         TimeSpan? startTimeout = null,
-        string? idleTimeout = null)
+        string? idleTimeout = null,
+        TimeSpan? firstNoticeAfter = null,
+        TimeSpan? secondNoticeAfter = null)
     {
         if (!DaemonIdleTimeoutParser.TryParseOptional(idleTimeout, out var parsedTimeout, out var parseError))
             throw new DaemonClientValidationException(parseError!);
 
         var timeout = startTimeout ?? TimeSpan.FromSeconds(120);
         DebugLog.Write("client", $"ConnectOrStartAsync begin timeoutMs={(long)timeout.TotalMilliseconds}");
-        var outcome = await DaemonStartupCoordinator.ConnectOrStartAsync(
-            solutionPath,
-            parsedTimeout,
-            readyTimeout: timeout);
+
+        return ConnectOrStartCoreAsync(
+            () => DaemonStartupCoordinator.ConnectOrStartAsync(
+                solutionPath,
+                parsedTimeout,
+                readyTimeout: timeout),
+            firstNoticeAfter ?? DefaultFirstNoticeAfter,
+            secondNoticeAfter ?? DefaultSecondNoticeAfter);
+    }
+
+    internal static async Task<DaemonClient> ConnectOrStartCoreAsync(
+        Func<Task<DaemonStartupOutcome>> startupOperation,
+        TimeSpan firstNoticeAfter,
+        TimeSpan secondNoticeAfter)
+    {
+        using var cts = new CancellationTokenSource();
+        var emissionGate = new object();
+        var firstTask = EmitProgressAfterAsync(firstNoticeAfter, FirstNoticeMessage, cts.Token, emissionGate);
+        var secondTask = EmitProgressAfterAsync(secondNoticeAfter, SecondNoticeMessage, cts.Token, emissionGate);
+
+        DaemonStartupOutcome outcome;
+        try
+        {
+            outcome = await startupOperation();
+        }
+        finally
+        {
+            cts.Cancel();
+        }
+
+        // Drain emission tasks so a late-firing continuation cannot race past the
+        // envelope written by the caller after this method returns.
+        await Task.WhenAll(firstTask, secondTask);
 
         DebugLog.Write("client", $"ConnectOrStartAsync outcome={outcome.Type} stage={outcome.Stage}");
 
@@ -77,6 +113,36 @@ public sealed class DaemonClient : IAsyncDisposable
 
         return outcome.Client
             ?? throw new InvalidOperationException("Daemon startup coordinator returned no client.");
+    }
+
+    private static async Task EmitProgressAfterAsync(TimeSpan delay, string message, CancellationToken ct, object gate)
+    {
+        try
+        {
+            await Task.Delay(delay, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested)
+            return;
+
+        try
+        {
+            lock (gate)
+            {
+                if (ct.IsCancellationRequested)
+                    return;
+
+                Console.Out.WriteLine(message);
+            }
+        }
+        catch
+        {
+            // Emission must never affect the startup outcome.
+        }
     }
 
     internal static Task<Process> StartDaemonProcessAsync(string solutionPath, DaemonIdleTimeoutSetting? idleTimeout)
