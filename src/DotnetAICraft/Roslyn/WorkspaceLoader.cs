@@ -31,7 +31,7 @@ public static class WorkspaceLoader
         Solution solution;
         var ext = Path.GetExtension(path).ToLowerInvariant();
 
-        if (ext == ".sln")
+        if (ext == ".sln" || ext == ".slnx")
         {
             solution = await workspace.OpenSolutionAsync(path, cancellationToken: ct);
         }
@@ -43,7 +43,7 @@ public static class WorkspaceLoader
         else
         {
             throw new ArgumentException(
-                $"Unsupported file type '{ext}'. Use .sln, .csproj, .vbproj or .fsproj.");
+                $"Unsupported file type '{ext}'. Use .sln, .slnx, .csproj, .vbproj or .fsproj.");
         }
 
         return (workspace, solution);

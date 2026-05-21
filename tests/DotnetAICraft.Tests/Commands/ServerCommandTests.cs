@@ -10,7 +10,7 @@ public class ServerCommandTests
     [Fact]
     public void Build_ExposesExpectedSubcommandsAndOptions()
     {
-        var command = ServerCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = ServerCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("server", command.Name);
 
@@ -37,7 +37,10 @@ public class ServerCommandTests
         => new("--format") { DefaultValueFactory = _ => OutputFormat.Text };
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

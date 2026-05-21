@@ -11,7 +11,7 @@ public class CallersCommandTests
     [Fact]
     public void Build_ExposesDirectionAndDepthOptions()
     {
-        var command = CallersCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = CallersCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("callers", command.Name);
         AssertContainsOption(command, "--solution");
@@ -31,7 +31,7 @@ public class CallersCommandTests
     [Fact]
     public void Parse_UsesDefaultDirectionAndDepth()
     {
-        var command = CallersCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = CallersCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
 
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
@@ -48,7 +48,7 @@ public class CallersCommandTests
     [Fact]
     public void Parse_UsesProvidedDirectionAndDepth()
     {
-        var command = CallersCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = CallersCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
 
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
@@ -65,7 +65,10 @@ public class CallersCommandTests
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

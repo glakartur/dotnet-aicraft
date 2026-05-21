@@ -53,21 +53,43 @@ The skill activates automatically in any Claude Code session where you work on a
 
 ### Find the solution file
 
+`--solution` is **optional**. When omitted, `dotnet aicraft` auto-discovers a
+single `.slnx`/`.sln`/`.csproj` in the current directory (non-recursive, tier
+priority `.slnx` → `.sln` → `.csproj`). From a repo root containing exactly one
+supported file, you can drop the `-s` flag entirely:
+
+```bash
+cd path/to/repo
+dotnet aicraft symbols --pattern "ProcessOrder*"
+```
+
+For multi-solution repos, find the file you want and pass it explicitly:
+
 ```bash
 find . -name "*.sln" -maxdepth 4 | head -5
 ```
+
+If discovery finds multiple candidates in the first non-empty tier, the CLI
+exits with `SOLUTION_AMBIGUOUS` listing the candidates — pass `-s` (or `-p`)
+explicitly to disambiguate. If no supported file is found, the error is
+`SOLUTION_NOT_FOUND`. Passing both `--solution` and `--project` with different
+paths errors with `CONFLICTING_PATH_ARGUMENTS`.
 
 ### Typical agent workflows
 
 **Before modifying a method — check all call sites:**
 ```bash
+# Auto-discovery (run from a folder with exactly one .slnx/.sln/.csproj)
+dotnet aicraft refs --file path/to/File.cs --line 42 --col 18
+
+# Explicit path
 dotnet aicraft refs -s App.sln --file path/to/File.cs --line 42 --col 18
 ```
 
 **Before deleting code — confirm it's unused:**
 ```bash
-dotnet aicraft refs -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
-dotnet aicraft unused -s App.sln --kind method --project MyApp.Services
+dotnet aicraft refs --symbol "MyApp.Services.OrderService.ProcessOrder"
+dotnet aicraft unused -s App.sln --kind method --project-name MyApp.Services
 ```
 
 **Safe rename — always dry-run first:**
@@ -101,10 +123,17 @@ Every command accepts these shared options:
 
 | Option | Description |
 |---|---|
-| `--solution` / `-s` | Path to `.sln` or `.csproj` file (required) |
+| `--solution` / `-s` | Path to `.sln`/`.slnx` file (also accepts `.csproj`/`.vbproj`/`.fsproj`). Optional — auto-discovered from the current directory when omitted. |
+| `--project` / `-p` | Path to `.csproj`/`.vbproj`/`.fsproj` file (also accepts `.sln`/`.slnx`). Optional — auto-discovered from the current directory when omitted. |
 | `--format` | Output format: `text` (default, compiler/ripgrep-style — optimized for LLMs) or `json` (pretty-printed, stable schema for scripts) |
 | `--idle-timeout` | Session-scoped daemon idle timeout: `off` or a positive duration like `5m`, `1h` (default 60m) |
 | `--debug` | Enable verbose debug logging to stderr |
+
+**CWD auto-discovery.** When neither `-s` nor `-p` is passed, the CLI scans the
+current directory (non-recursive) in tier order `.slnx` → `.sln` → `.csproj`
+and uses the single match. Multiple matches in a tier → `SOLUTION_AMBIGUOUS`.
+No matches → `SOLUTION_NOT_FOUND`. Passing both flags with different paths →
+`CONFLICTING_PATH_ARGUMENTS`. Same path on both flags is accepted.
 
 Debug logging can also be enabled via the environment variable `DOTNET_AICRAFT_DEBUG=1`.
 
@@ -113,7 +142,10 @@ Debug logging can also be enabled via the environment variable `DOTNET_AICRAFT_D
 ### Find all references to a symbol
 
 ```bash
-# By file location (line/col — most useful for agents reading source files)
+# Auto-discovery (run from a folder with one .sln/.slnx/.csproj)
+dotnet aicraft refs --file src/Services/OrderService.cs --line 42 --col 18
+
+# Explicit path, by file location
 dotnet aicraft refs --solution App.sln --file src/Services/OrderService.cs --line 42 --col 18
 
 # By fully-qualified name
@@ -265,7 +297,7 @@ Valid `--kind` values: `all` (default), `type`, `member`, `namespace`, `class`, 
 ```bash
 dotnet aicraft diagnostics --solution App.sln --severity warning
 dotnet aicraft diagnostics --solution App.sln --severity error
-dotnet aicraft diagnostics --solution App.sln --project MyApp.Core --file src/Services/OrderService.cs
+dotnet aicraft diagnostics --solution App.sln --project-name MyApp.Core --file src/Services/OrderService.cs
 ```
 
 `--severity` values: `all` (default), `error`, `warning`, `info`, `hidden`.
@@ -274,7 +306,7 @@ dotnet aicraft diagnostics --solution App.sln --project MyApp.Core --file src/Se
 
 ```bash
 dotnet aicraft unused --solution App.sln --kind method
-dotnet aicraft unused --solution App.sln --project MyApp.Core --public-only
+dotnet aicraft unused --solution App.sln --project-name MyApp.Core --public-only
 dotnet aicraft unused --solution App.sln --kind class --include-generated
 ```
 
@@ -324,7 +356,7 @@ a background daemon that loads the solution and keeps it in memory. The daemon:
 | `dotnet aicraft impls` | Implementations of interface/abstract member |
 | `dotnet aicraft callers` | Call graph (`incoming`, `outgoing`, `both`) with `--depth` |
 | `dotnet aicraft symbols` | Search symbols by name pattern with pagination |
-| `dotnet aicraft diagnostics` | Roslyn diagnostics (`severity/project/file` filters) |
+| `dotnet aicraft diagnostics` | Roslyn diagnostics (`severity/project-name/file` filters) |
 | `dotnet aicraft unused` | Candidates for unused/dead code |
 | `dotnet aicraft server status` | Daemon status |
 | `dotnet aicraft server reload` | Reload solution |

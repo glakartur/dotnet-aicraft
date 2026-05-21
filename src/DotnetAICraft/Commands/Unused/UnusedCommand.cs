@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetAICraft.Daemon;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Commands.Unused;
 using DotnetAICraft.Output;
 
@@ -9,6 +10,7 @@ public static class UnusedCommand
 {
     public static Command Build(
         Option<FileInfo> solutionOption,
+        Option<FileInfo> projectOption,
         Option<string?> idleTimeoutOption,
         Option<bool>? debugOption = null,
         Option<OutputFormat>? formatOption = null)
@@ -19,7 +21,7 @@ public static class UnusedCommand
             DefaultValueFactory = _ => "all"
         };
 
-        var projectOpt = new Option<string?>("--project")
+        var projectNameOpt = new Option<string?>("--project-name")
         {
             Description = "Optional project name filter"
         };
@@ -37,8 +39,9 @@ public static class UnusedCommand
         var cmd = new Command("unused", "Find likely unused symbols with confidence and reason")
         {
             solutionOption,
+            projectOption,
             kindOpt,
-            projectOpt,
+            projectNameOpt,
             publicOnlyOpt,
             includeGeneratedOpt,
             idleTimeoutOption
@@ -51,15 +54,19 @@ public static class UnusedCommand
 
         cmd.SetAction(async parseResult =>
         {
-            var solution = parseResult.GetRequiredValue(solutionOption);
+            var solution = parseResult.GetValue(solutionOption);
+            var project = parseResult.GetValue(projectOption);
             var kind = parseResult.GetRequiredValue(kindOpt);
-            var project = parseResult.GetValue(projectOpt);
+            var projectName = parseResult.GetValue(projectNameOpt);
             var publicOnly = parseResult.GetValue(publicOnlyOpt);
             var includeGenerated = parseResult.GetValue(includeGeneratedOpt);
             var idleTimeout = parseResult.GetValue(idleTimeoutOption);
             var format = formatOption is null ? OutputFormat.Text : parseResult.GetValue(formatOption);
 
-            await Entry.ExecuteAsync(solution.FullName, kind, project, publicOnly, includeGenerated, idleTimeout, format);
+            var solutionPath = SolutionPathResolver.Resolve(solution, project, format);
+            if (solutionPath is null) return;
+
+            await Entry.ExecuteAsync(solutionPath, kind, projectName, publicOnly, includeGenerated, idleTimeout, format);
         });
 
         return cmd;

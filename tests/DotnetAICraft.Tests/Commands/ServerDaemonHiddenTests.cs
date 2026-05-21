@@ -9,7 +9,7 @@ public class ServerDaemonHiddenTests
     [Fact]
     public void Build_RegistersDaemonSubcommandWithHiddenTrue()
     {
-        var command = ServerCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = ServerCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
 
         var daemon = Assert.IsType<Command>(Assert.Single(command.Subcommands, c => c.Name == "daemon"));
 
@@ -19,7 +19,10 @@ public class ServerDaemonHiddenTests
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

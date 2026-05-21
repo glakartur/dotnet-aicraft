@@ -10,7 +10,7 @@ public class ImplsCommandTests
     [Fact]
     public void Build_ExposesExpectedOptionsAndAliases()
     {
-        var command = ImplsCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = ImplsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("impls", command.Name);
         AssertContainsOption(command, "--solution");
@@ -26,14 +26,17 @@ public class ImplsCommandTests
     [Fact]
     public void Build_SymbolOption_IsRequired()
     {
-        var command = ImplsCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = ImplsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
         var symbolOption = GetOption<string>(command, "--symbol");
 
         Assert.True(symbolOption.Required);
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

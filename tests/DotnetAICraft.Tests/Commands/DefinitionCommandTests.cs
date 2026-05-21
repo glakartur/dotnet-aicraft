@@ -14,7 +14,7 @@ public class DefinitionCommandTests
         var solutionOption = BuildSolutionOption();
         var idleTimeoutOption = BuildIdleTimeoutOption();
 
-        var command = DefinitionCommand.Build(solutionOption, idleTimeoutOption, formatOption: BuildFormatOption());
+        var command = DefinitionCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, formatOption: BuildFormatOption());
 
         Assert.Equal("definition", command.Name);
         AssertContainsOption(command, "--solution");
@@ -46,7 +46,10 @@ public class DefinitionCommandTests
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

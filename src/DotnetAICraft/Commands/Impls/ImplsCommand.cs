@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetAICraft.Commands.Impls;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Output;
 
 namespace DotnetAICraft.Commands;
@@ -8,6 +9,7 @@ public static class ImplsCommand
 {
     public static Command Build(
         Option<FileInfo> solutionOption,
+        Option<FileInfo> projectOption,
         Option<string?> idleTimeoutOption,
         Option<bool>? debugOption = null,
         Option<OutputFormat>? formatOption = null)
@@ -21,7 +23,7 @@ public static class ImplsCommand
         var cmd = new Command("impls",
             "Find all implementations of an interface or abstract member")
         {
-            solutionOption, symbolOpt, idleTimeoutOption
+            solutionOption, projectOption, symbolOpt, idleTimeoutOption
         };
 
         if (debugOption is not null)
@@ -31,12 +33,16 @@ public static class ImplsCommand
 
         cmd.SetAction(async parseResult =>
         {
-            var solution = parseResult.GetRequiredValue(solutionOption);
+            var solution = parseResult.GetValue(solutionOption);
+            var project = parseResult.GetValue(projectOption);
             var symbol = parseResult.GetRequiredValue(symbolOpt);
             var idleTimeout = parseResult.GetValue(idleTimeoutOption);
             var format = formatOption is null ? OutputFormat.Text : parseResult.GetValue(formatOption);
 
-            await Entry.ExecuteAsync(solution.FullName, symbol, idleTimeout, format);
+            var solutionPath = SolutionPathResolver.Resolve(solution, project, format);
+            if (solutionPath is null) return;
+
+            await Entry.ExecuteAsync(solutionPath, symbol, idleTimeout, format);
         });
 
         return cmd;

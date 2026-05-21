@@ -38,8 +38,14 @@ if (!MSBuildLocator.IsRegistered)
 
 var solutionOption = new Option<FileInfo>("--solution", "-s")
 {
-    Description = "Path to the .sln or .csproj file to analyze",
-    Required = true
+    Description = "Path to the .sln/.slnx file (also accepts .csproj/.vbproj/.fsproj). Optional — auto-discovered from the current directory when omitted.",
+    Required = false
+};
+
+var projectOption = new Option<FileInfo>("--project", "-p")
+{
+    Description = "Path to the .csproj/.vbproj/.fsproj file (also accepts .sln/.slnx). Optional — auto-discovered from the current directory when omitted.",
+    Required = false
 };
 
 var idleTimeoutOption = new Option<string?>("--idle-timeout")
@@ -67,15 +73,15 @@ var root = new RootCommand(
 DebugLog.ConfigureFromEnvironment();
 DebugLog.ConfigureFromArgs(args);
 
-root.Add(ServerCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(RefsCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(DefinitionCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(RenameCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(ImplsCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(CallersCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(DiagnosticsCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(SymbolsCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
-root.Add(UnusedCommand.Build(solutionOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(ServerCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(RefsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(DefinitionCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(RenameCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(ImplsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(CallersCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(DiagnosticsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(SymbolsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(UnusedCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 
 return await root.Parse(args).InvokeAsync();
 

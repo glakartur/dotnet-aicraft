@@ -10,13 +10,15 @@ public class UnusedCommandTests
     [Fact]
     public void Build_ExposesExpectedOptionsAndDefaults()
     {
-        var command = UnusedCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = UnusedCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("unused", command.Name);
         AssertContainsOption(command, "--solution");
         AssertContainsOption(command, "-s");
         AssertContainsOption(command, "--kind");
         AssertContainsOption(command, "--project");
+        AssertContainsOption(command, "-p");
+        AssertContainsOption(command, "--project-name");
         AssertContainsOption(command, "--public-only");
         AssertContainsOption(command, "--include-generated");
         AssertContainsOption(command, "--idle-timeout");
@@ -38,7 +40,7 @@ public class UnusedCommandTests
     [Fact]
     public void Parse_BooleanFlags_SetExpectedValues()
     {
-        var command = UnusedCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = UnusedCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
 
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
@@ -54,7 +56,10 @@ public class UnusedCommandTests
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

@@ -1,6 +1,7 @@
 using System.CommandLine;
 using DotnetAICraft.Daemon;
 using DotnetAICraft.Commands.Callers;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Output;
 
 namespace DotnetAICraft.Commands;
@@ -9,6 +10,7 @@ public static class CallersCommand
 {
     public static Command Build(
         Option<FileInfo> solutionOption,
+        Option<FileInfo> projectOption,
         Option<string?> idleTimeoutOption,
         Option<bool>? debugOption = null,
         Option<OutputFormat>? formatOption = null)
@@ -33,6 +35,7 @@ public static class CallersCommand
         var cmd = new Command("callers", "Find method callers or callees (call graph)")
         {
             solutionOption,
+            projectOption,
             fileOpt,
             lineOpt,
             colOpt,
@@ -49,7 +52,8 @@ public static class CallersCommand
 
         cmd.SetAction(async parseResult =>
         {
-            var solution = parseResult.GetRequiredValue(solutionOption);
+            var solution = parseResult.GetValue(solutionOption);
+            var project = parseResult.GetValue(projectOption);
             var file = parseResult.GetValue(fileOpt);
             var line = parseResult.GetValue(lineOpt);
             var col = parseResult.GetValue(colOpt);
@@ -59,8 +63,11 @@ public static class CallersCommand
             var idleTimeout = parseResult.GetValue(idleTimeoutOption);
             var format = formatOption is null ? OutputFormat.Text : parseResult.GetValue(formatOption);
 
+            var solutionPath = SolutionPathResolver.Resolve(solution, project, format);
+            if (solutionPath is null) return;
+
             await Entry.ExecuteAsync(
-                solution.FullName,
+                solutionPath,
                 file,
                 line,
                 col,

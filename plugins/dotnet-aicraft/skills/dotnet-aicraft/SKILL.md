@@ -31,7 +31,7 @@ description: >
 
   ALWAYS prefer `dotnet aicraft` over grep/Glob/ripgrep/Read for any symbol-level question in a .NET
   project. Fall back to text search only for non-semantic content (comments, configs, markdown).
-version: 0.6.1
+version: 0.6.2
 ---
 
 # dotnet-aicraft
@@ -55,22 +55,34 @@ Text search **misses**: renamed variables, interface dispatch, virtual/override 
 
 ## Solution Discovery
 
-If the solution path is unknown:
+`--solution` is **optional**. From a folder containing exactly one
+`.slnx`/`.sln`/`.csproj`, omit `-s` — the CLI auto-discovers it (non-recursive,
+tier priority `.slnx` → `.sln` → `.csproj`):
+
+```bash
+cd path/to/repo
+dotnet aicraft symbols --pattern "MethodName*"
+```
+
+For multi-solution repos, find the file you want and pass it explicitly:
 
 ```bash
 find . -name "*.sln" -maxdepth 4 | head -5
-# or check the project root directly
 ls *.sln 2>/dev/null
 ```
 
-Pass the found path as `-s <path>` to every command.
+**On `SOLUTION_AMBIGUOUS`:** the cwd has multiple matches in the first
+non-empty tier. Pass `-s <path>` or `-p <path>` explicitly to disambiguate.
+**On `SOLUTION_NOT_FOUND`:** the cwd has no supported file; pass `-s`/`-p` or
+`cd` into a folder containing one. **On `CONFLICTING_PATH_ARGUMENTS`:** both
+flags were given with different paths — drop one.
 
 ## Discovering Fully-Qualified Names
 
 Most commands require a fully-qualified symbol name (FQN). When you only have a short name, discover it first:
 
 ```bash
-dotnet aicraft symbols -s App.sln --pattern "MethodName*"
+dotnet aicraft symbols --pattern "MethodName*"
 dotnet aicraft symbols -s App.sln --pattern "*ClassName*" --kind class
 ```
 
@@ -113,11 +125,20 @@ For list-shaped results (`refs`, `impls`, `symbols`, `diagnostics`, `unused`) th
 ## Shared Options
 
 ```bash
---solution / -s   # Path to .sln or .csproj (required)
+--solution / -s   # Path to .sln/.slnx (also accepts .csproj/.vbproj/.fsproj).
+                  # Optional — auto-discovered from cwd when omitted.
+--project  / -p   # Path to .csproj/.vbproj/.fsproj (also accepts .sln/.slnx).
+                  # Optional — auto-discovered from cwd when omitted.
 --format          # text (default, LLM-optimized) | json (stable schema for scripting)
 --idle-timeout    # "off" or duration like "5m", "1h" (default 60m, session-scoped)
 --debug           # Verbose debug logging to stderr (also: DOTNET_AICRAFT_DEBUG=1)
 ```
+
+When neither `-s` nor `-p` is provided, the CLI scans the current directory
+(non-recursive) for a single supported file using tier priority
+`.slnx` → `.sln` → `.csproj`. Passing both `--solution` and `--project` with
+different paths errors with `CONFLICTING_PATH_ARGUMENTS`; same path on both is
+accepted.
 
 ## Identifying Symbols
 
@@ -134,6 +155,10 @@ For list-shaped results (`refs`, `impls`, `symbols`, `diagnostics`, `unused`) th
 ### refs — Find All References
 
 ```bash
+# Auto-discovered solution (run from a folder with one .sln/.slnx/.csproj)
+dotnet aicraft refs --file src/Services/OrderService.cs --line 42 --col 18
+
+# Explicit path
 dotnet aicraft refs -s App.sln --file src/Services/OrderService.cs --line 42 --col 18
 dotnet aicraft refs -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
 ```
@@ -162,6 +187,9 @@ Output: `{ symbol, newName, applied, dryRun, changes[] }`
 ### definition — Find Declaration
 
 ```bash
+# Auto-discovered solution
+dotnet aicraft definition --symbol "MyApp.Services.OrderService.ProcessOrder"
+
 dotnet aicraft definition -s App.sln --file Services/OrderService.cs --line 42 --col 18
 dotnet aicraft definition -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
 ```
@@ -179,6 +207,9 @@ Output: JSON array of implementing types with file locations.
 ### callers — Call Graph
 
 ```bash
+# Auto-discovered solution
+dotnet aicraft callers --symbol "MyApp.Services.OrderService.ProcessOrder"
+
 # Default: incoming callers, depth=1
 dotnet aicraft callers -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
 
@@ -192,7 +223,7 @@ Output: `CallGraphResult { rootId, direction, depth, nodes[], edges[] }`
 
 ```bash
 dotnet aicraft diagnostics -s App.sln --severity error
-dotnet aicraft diagnostics -s App.sln --project MyApp.Core
+dotnet aicraft diagnostics -s App.sln --project-name MyApp.Core
 dotnet aicraft diagnostics -s App.sln --file src/Services/OrderService.cs
 ```
 
@@ -202,7 +233,7 @@ Output: sorted `[{ project, id, severity, message, file, line, col }]`
 
 ```bash
 dotnet aicraft unused -s App.sln --kind method
-dotnet aicraft unused -s App.sln --project MyApp.Core --public-only
+dotnet aicraft unused -s App.sln --project-name MyApp.Core --public-only
 dotnet aicraft unused -s App.sln --kind class --include-generated
 ```
 
@@ -211,6 +242,9 @@ Output: `UnusedScanSummary { scanned, items[{ symbol, kind, reason, confidence }
 ### symbols — Pattern Search
 
 ```bash
+# Auto-discovered solution
+dotnet aicraft symbols --pattern "Process*"
+
 dotnet aicraft symbols -s App.sln --pattern "Process*"
 dotnet aicraft symbols -s App.sln --pattern "Process*" --kind method
 dotnet aicraft symbols -s App.sln --pattern "*" --kind class --limit 100 --offset 200
@@ -251,7 +285,7 @@ dotnet aicraft server start  -s App.sln --idle-timeout off   # disable idle auto
 
 ### Diagnostics triage before refactor
 1. `diagnostics --severity error` → fix blockers first.
-2. Narrow by `--project` or `--file` as needed.
+2. Narrow by `--project-name` or `--file` as needed.
 
 ## Reference Files
 

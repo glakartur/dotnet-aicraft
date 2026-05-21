@@ -10,7 +10,7 @@ public class RenameCommandTests
     [Fact]
     public void Build_ExposesExpectedOptionsAndAliases()
     {
-        var command = RenameCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = RenameCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("rename", command.Name);
         AssertContainsOption(command, "--solution");
@@ -31,14 +31,17 @@ public class RenameCommandTests
     [Fact]
     public void Build_ToOption_IsRequired()
     {
-        var command = RenameCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = RenameCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
         var toOption = GetOption<string>(command, "--to");
 
         Assert.True(toOption.Required);
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

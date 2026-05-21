@@ -22,15 +22,15 @@ public class DaemonTimeoutOptionTests
         var idleTimeoutOption = BuildIdleTimeoutOption();
         var debugOption = BuildDebugOption();
 
-        var refs = RefsCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var definition = DefinitionCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var rename = RenameCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var impls = ImplsCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var callers = CallersCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var symbols = SymbolsCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var unused = UnusedCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var diagnostics = DiagnosticsCommand.Build(solutionOption, idleTimeoutOption, debugOption);
-        var server = ServerCommand.Build(solutionOption, idleTimeoutOption, debugOption);
+        var refs = RefsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var definition = DefinitionCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var rename = RenameCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var impls = ImplsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var callers = CallersCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var symbols = SymbolsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var unused = UnusedCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var diagnostics = DiagnosticsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        var server = ServerCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
 
         AssertContainsOption(refs, "--idle-timeout");
         AssertContainsOption(refs, "--debug");
@@ -200,6 +200,9 @@ public class DaemonTimeoutOptionTests
 
     private static Option<FileInfo> BuildSolutionOption()
         => new("--solution") { Required = true };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

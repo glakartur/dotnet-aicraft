@@ -11,7 +11,7 @@ public class SymbolsCommandTests
     [Fact]
     public void Build_ExposesPaginationOptionsWithDefaultValues()
     {
-        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("symbols", command.Name);
         AssertContainsOption(command, "--limit");
@@ -33,7 +33,7 @@ public class SymbolsCommandTests
     [Fact]
     public void Build_KindOptionDescription_ListsGranularKinds()
     {
-        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
         var kindOption = GetOption<string>(command, "--kind");
 
         Assert.Contains("constructor", kindOption.Description, StringComparison.Ordinal);
@@ -44,7 +44,7 @@ public class SymbolsCommandTests
     [Fact]
     public void Parse_UsesProvidedLimitAndOffsetValues()
     {
-        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption());
+        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
 
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
@@ -60,8 +60,38 @@ public class SymbolsCommandTests
         Assert.Equal(50, parseResult.GetValue(offsetOption));
     }
 
+    [Fact]
+    public void Parse_NoPathFlags_DoesNotError()
+    {
+        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        var parseResult = command.Parse(["--pattern", "Foo*"]);
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Fact]
+    public void Parse_BothSolutionAndProjectFlags_ParseSuccessfully()
+    {
+        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        var parseResult = command.Parse([
+            "--solution", "/tmp/a.sln",
+            "--project", "/tmp/b.csproj",
+            "--pattern", "Foo*"]);
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Fact]
+    public void Build_ExposesProjectOptionAndAlias()
+    {
+        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        AssertContainsOption(command, "--project");
+        AssertContainsOption(command, "-p");
+    }
+
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

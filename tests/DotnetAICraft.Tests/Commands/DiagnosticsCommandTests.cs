@@ -13,13 +13,15 @@ public class DiagnosticsCommandTests
         var solutionOption = BuildSolutionOption();
         var idleTimeoutOption = BuildIdleTimeoutOption();
 
-        var command = DiagnosticsCommand.Build(solutionOption, idleTimeoutOption, formatOption: BuildFormatOption());
+        var command = DiagnosticsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, formatOption: BuildFormatOption());
 
         Assert.Equal("diagnostics", command.Name);
         AssertContainsOption(command, "--solution");
         AssertContainsOption(command, "-s");
         AssertContainsOption(command, "--severity");
         AssertContainsOption(command, "--project");
+        AssertContainsOption(command, "-p");
+        AssertContainsOption(command, "--project-name");
         AssertContainsOption(command, "--file");
         AssertContainsOption(command, "--idle-timeout");
         AssertContainsOption(command, "--format");
@@ -29,7 +31,10 @@ public class DiagnosticsCommandTests
         => new("--format") { DefaultValueFactory = _ => OutputFormat.Text };
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

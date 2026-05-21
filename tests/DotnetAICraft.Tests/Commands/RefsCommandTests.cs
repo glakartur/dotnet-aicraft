@@ -11,7 +11,7 @@ public class RefsCommandTests
     [Fact]
     public void Build_ExposesExpectedOptionsAndAliases()
     {
-        var command = RefsCommand.Build(BuildSolutionOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var command = RefsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
 
         Assert.Equal("refs", command.Name);
         AssertContainsOption(command, "--solution");
@@ -42,7 +42,10 @@ public class RefsCommandTests
     }
 
     private static Option<FileInfo> BuildSolutionOption()
-        => new("--solution", "-s") { Required = true };
+        => new("--solution", "-s") { Required = false };
+
+    private static Option<FileInfo> BuildProjectOption()
+        => new("--project", "-p") { Required = false };
 
     private static Option<string?> BuildIdleTimeoutOption()
         => new("--idle-timeout");

@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetAICraft.Daemon;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Commands.Symbols;
 using DotnetAICraft.Output;
 
@@ -9,6 +10,7 @@ public static class SymbolsCommand
 {
     public static Command Build(
         Option<FileInfo> solutionOption,
+        Option<FileInfo> projectOption,
         Option<string?> idleTimeoutOption,
         Option<bool>? debugOption = null,
         Option<OutputFormat>? formatOption = null)
@@ -39,7 +41,7 @@ public static class SymbolsCommand
 
         var cmd = new Command("symbols", "Search symbols by name pattern across the solution")
         {
-            solutionOption, patternOpt, kindOpt, limitOpt, offsetOpt, idleTimeoutOption
+            solutionOption, projectOption, patternOpt, kindOpt, limitOpt, offsetOpt, idleTimeoutOption
         };
 
         if (debugOption is not null)
@@ -49,7 +51,8 @@ public static class SymbolsCommand
 
         cmd.SetAction(async parseResult =>
         {
-            var solution = parseResult.GetRequiredValue(solutionOption);
+            var solution = parseResult.GetValue(solutionOption);
+            var project = parseResult.GetValue(projectOption);
             var pattern = parseResult.GetRequiredValue(patternOpt);
             var kind = parseResult.GetRequiredValue(kindOpt);
             var limit = parseResult.GetRequiredValue(limitOpt);
@@ -57,7 +60,10 @@ public static class SymbolsCommand
             var idleTimeout = parseResult.GetValue(idleTimeoutOption);
             var format = formatOption is null ? OutputFormat.Text : parseResult.GetValue(formatOption);
 
-            await Entry.ExecuteAsync(solution.FullName, pattern, kind, limit, offset, idleTimeout, format);
+            var solutionPath = SolutionPathResolver.Resolve(solution, project, format);
+            if (solutionPath is null) return;
+
+            await Entry.ExecuteAsync(solutionPath, pattern, kind, limit, offset, idleTimeout, format);
         });
 
         return cmd;

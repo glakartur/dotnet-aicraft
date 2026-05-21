@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DotnetAICraft.Commands.Rename;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Output;
 
 namespace DotnetAICraft.Commands;
@@ -8,6 +9,7 @@ public static class RenameCommand
 {
     public static Command Build(
         Option<FileInfo> solutionOption,
+        Option<FileInfo> projectOption,
         Option<string?> idleTimeoutOption,
         Option<bool>? debugOption = null,
         Option<OutputFormat>? formatOption = null)
@@ -25,7 +27,7 @@ public static class RenameCommand
 
         var cmd = new Command("rename", "Rename a symbol across the entire solution")
         {
-            solutionOption, fileOpt, lineOpt, colOpt, symbolOpt, toOpt, dryRunOpt, idleTimeoutOption
+            solutionOption, projectOption, fileOpt, lineOpt, colOpt, symbolOpt, toOpt, dryRunOpt, idleTimeoutOption
         };
 
         if (debugOption is not null)
@@ -35,7 +37,8 @@ public static class RenameCommand
 
         cmd.SetAction(async parseResult =>
         {
-            var solution = parseResult.GetRequiredValue(solutionOption);
+            var solution = parseResult.GetValue(solutionOption);
+            var project = parseResult.GetValue(projectOption);
             var file = parseResult.GetValue(fileOpt);
             var line = parseResult.GetValue(lineOpt);
             var col = parseResult.GetValue(colOpt);
@@ -45,7 +48,10 @@ public static class RenameCommand
             var idleTimeout = parseResult.GetValue(idleTimeoutOption);
             var format = formatOption is null ? OutputFormat.Text : parseResult.GetValue(formatOption);
 
-            await Entry.ExecuteAsync(solution.FullName, file, line, col, symbol, to, dryRun, idleTimeout, format);
+            var solutionPath = SolutionPathResolver.Resolve(solution, project, format);
+            if (solutionPath is null) return;
+
+            await Entry.ExecuteAsync(solutionPath, file, line, col, symbol, to, dryRun, idleTimeout, format);
         });
 
         return cmd;
