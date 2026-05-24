@@ -7,14 +7,14 @@ semantic understanding of .NET code: find every reference to a symbol, safely re
 across an entire solution, explore call hierarchies — the same operations your IDE uses.
 
 ```
-                    ┌─────────────────────────────┐
+                         ┌─────────────────────────────┐
  dotnet aicraft refs     │  Daemon (lives in memory)   │
  dotnet aicraft rename   │  ┌─────────────────────┐    │
  dotnet aicraft callers  │  │  Roslyn Workspace   │    │
-        │           │  │  Solution (cached)  │    │
-        └──────────▶│  │  File watcher       │    │
-    Unix socket     │  └─────────────────────┘    │
-                    └─────────────────────────────┘
+        │                │  │  Solution (cached)  │    │
+        └──────────────▶│  │  File watcher       │    │
+         Unix socket     │  └─────────────────────┘    │
+                         └─────────────────────────────┘
 ```
 
 The daemon loads your solution once and keeps it in memory. Subsequent calls
