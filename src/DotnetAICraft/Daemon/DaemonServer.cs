@@ -28,7 +28,10 @@ public sealed class DaemonServer : IAsyncDisposable
     private readonly DateTime _startedAt = DateTime.UtcNow;
     private DateTime? _lastLoadAttemptAt;
     private ErrorInfo? _lastLoadError;
-    private DaemonLoadState _loadState = DaemonLoadState.Unloaded;
+    // Read lock-free from request threads (e.g. HandleStatus, GetSolution) while
+    // writes happen under _solutionLock; volatile guarantees readers see the
+    // latest transition without taking the lock.
+    private volatile DaemonLoadState _loadState = DaemonLoadState.Unloaded;
     private FileSystemWatcher? _watcher;
     private FileSystemWatcher? _metadataWatcher;
     private CancellationTokenSource? _metadataReloadDebounceCts;
@@ -139,11 +142,18 @@ public sealed class DaemonServer : IAsyncDisposable
         StartFileWatcher();
         StartMetadataWatcher();
 
-        Log($"Attempting initial solution load: {_solutionPath}");
-        await TryLoadSolutionAsync();
+        // Accept-then-load: serve connections (and answer `status`) while the
+        // solution loads on a background task, instead of blocking the accept
+        // loop on the initial load. Set Loading synchronously here to close the
+        // window before the background task acquires _solutionLock, so an early
+        // `status` poll never observes the initial Unloaded.
+        _loadState = DaemonLoadState.Loading;
+        Log($"Starting background solution load: {_solutionPath}");
+        // TryLoadSolutionAsync returns bool and swallows its own exceptions, so
+        // it is safe to run unobserved until shutdown awaits it below.
+        var loadTask = TryLoadSolutionAsync();
 
-        Log($"Daemon ready. Socket: {socketPath}");
-        Log($"Load state: {_loadState.ToString().ToLowerInvariant()}");
+        Log($"Daemon accepting connections. Socket: {socketPath}");
 
         ResetIdleDeadline();
 
@@ -159,6 +169,9 @@ public sealed class DaemonServer : IAsyncDisposable
         }
 
         Log("Daemon shutting down.");
+        // Observe the background load before deleting the socket so teardown
+        // never races an in-flight load or leaves an unobserved task.
+        await loadTask;
         if (File.Exists(socketPath)) File.Delete(socketPath);
     }
 
@@ -703,6 +716,13 @@ public sealed class DaemonServer : IAsyncDisposable
         if (_hasExplicitIdleTimeoutOverride)
             return configured;
 
+        // A background load is a genuine active operation. Exempt Loading from
+        // idle reaping for the full duration of the load rather than borrowing
+        // the fixed unloaded window, since a load slow enough to trip the 90s
+        // startup notice could exceed that window and be reaped mid-load.
+        if (_loadState == DaemonLoadState.Loading)
+            return new DaemonIdleTimeoutSetting(false, Timeout.InfiniteTimeSpan, "off");
+
         if (_loadState == DaemonLoadState.Unloaded)
             return new DaemonIdleTimeoutSetting(true, TimeSpan.FromMinutes(UnloadedIdleTimeoutMinutes), $"{UnloadedIdleTimeoutMinutes}m");
 
@@ -764,6 +784,10 @@ public sealed class DaemonServer : IAsyncDisposable
             _workspace?.Dispose();
             _workspace = null;
             _solution = null;
+            // Own the Loading transition here so it covers every load path (cold
+            // start and reload). RunAsync also sets Loading synchronously before
+            // launching the cold-start load task; both set the same value.
+            _loadState = DaemonLoadState.Loading;
 
             var (workspace, solution) = await WorkspaceLoader.LoadAsync(_solutionPath);
             _workspace = workspace;
@@ -795,6 +819,21 @@ public sealed class DaemonServer : IAsyncDisposable
     {
         if (_solution is not null)
             return _solution;
+
+        if (_loadState == DaemonLoadState.Loading)
+        {
+            throw new DaemonValidationException(new ErrorInfo(
+                "SOLUTION_LOADING",
+                "Solution is still loading.",
+                new
+                {
+                    solutionPath = _solutionPath,
+                    loadState = "loading",
+                    startedLoadingAt = _lastLoadAttemptAt,
+                    retryable = true,
+                    hint = "The daemon is loading the solution; retry shortly."
+                }));
+        }
 
         throw new DaemonValidationException(new ErrorInfo(
             "SOLUTION_UNAVAILABLE",
@@ -2099,6 +2138,7 @@ public enum DaemonLifecycleState
 public enum DaemonLoadState
 {
     Unloaded,
+    Loading,
     Loaded
 }
 

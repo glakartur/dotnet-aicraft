@@ -51,6 +51,7 @@ public sealed class DaemonClient : IAsyncDisposable
 
     internal static readonly TimeSpan DefaultFirstNoticeAfter = TimeSpan.FromSeconds(10);
     internal static readonly TimeSpan DefaultSecondNoticeAfter = TimeSpan.FromSeconds(90);
+    internal static readonly TimeSpan ReadinessPollInterval = TimeSpan.FromMilliseconds(150);
     internal const string FirstNoticeMessage = "first-run startup (can take a while)";
     internal const string SecondNoticeMessage = "taking longer than expected";
 
@@ -72,12 +73,14 @@ public sealed class DaemonClient : IAsyncDisposable
                 solutionPath,
                 parsedTimeout,
                 readyTimeout: timeout),
+            (outcome, _) => WaitForSolutionReadyAsync(solutionPath, outcome, timeout, ReadinessPollInterval),
             firstNoticeAfter ?? DefaultFirstNoticeAfter,
             secondNoticeAfter ?? DefaultSecondNoticeAfter);
     }
 
     internal static async Task<DaemonClient> ConnectOrStartCoreAsync(
         Func<Task<DaemonStartupOutcome>> startupOperation,
+        Func<DaemonStartupOutcome, CancellationToken, Task<DaemonClient>> awaitReadiness,
         TimeSpan firstNoticeAfter,
         TimeSpan secondNoticeAfter)
     {
@@ -87,18 +90,27 @@ public sealed class DaemonClient : IAsyncDisposable
         var secondTask = EmitProgressAfterAsync(secondNoticeAfter, SecondNoticeMessage, cts.Token, emissionGate);
 
         DaemonStartupOutcome outcome;
+        DaemonClient? readyClient = null;
         try
         {
             outcome = await startupOperation();
+
+            // The readiness wait runs inside the notice window so the 10s/90s
+            // notices span connect PLUS the real first-run solution load — the
+            // genuinely slow phase — not just the near-instant connect. The fast
+            // path (already-loaded daemon) resolves on the first poll and cancels
+            // both timers well before 10s, staying silent.
+            if (outcome.Type != DaemonStartupOutcomeType.Failed)
+                readyClient = await awaitReadiness(outcome, cts.Token);
         }
         finally
         {
+            // Cancel + drain inside finally so a late-firing notice cannot race
+            // past the envelope the caller writes after this returns — on both
+            // the success and the readiness-failure (throwing) paths.
             cts.Cancel();
+            await Task.WhenAll(firstTask, secondTask);
         }
-
-        // Drain emission tasks so a late-firing continuation cannot race past the
-        // envelope written by the caller after this method returns.
-        await Task.WhenAll(firstTask, secondTask);
 
         DebugLog.Write("client", $"ConnectOrStartAsync outcome={outcome.Type} stage={outcome.Stage}");
 
@@ -111,8 +123,137 @@ public sealed class DaemonClient : IAsyncDisposable
             Console.Error.WriteLine("[dotnet-aicraft] Ready.");
         }
 
-        return outcome.Client
+        return readyClient
             ?? throw new InvalidOperationException("Daemon startup coordinator returned no client.");
+    }
+
+    private enum ReadinessPollResult
+    {
+        Ready,
+        Failed,
+        NotReady
+    }
+
+    /// <summary>
+    /// Blocks until the daemon reports the solution is <c>loaded</c>, polling
+    /// <c>status</c> over a fresh short-lived connection each iteration (the
+    /// daemon serves one request per connection). Returns the coordinator's
+    /// original, still-unused connection as the ready client so the caller's
+    /// first real command does not hit <c>SOLUTION_LOADING</c>. Surfaces a failed
+    /// load as a <see cref="DaemonClientValidationException"/> and falls back to a
+    /// ready-timeout if the load never completes within <paramref name="readyTimeout"/>.
+    /// </summary>
+    internal static async Task<DaemonClient> WaitForSolutionReadyAsync(
+        string solutionPath,
+        DaemonStartupOutcome outcome,
+        TimeSpan readyTimeout,
+        TimeSpan pollInterval,
+        CancellationToken cancellationToken = default)
+    {
+        var readyClient = outcome.Client
+            ?? throw new InvalidOperationException("Daemon startup coordinator returned no client.");
+
+        var deadline = DateTime.UtcNow + readyTimeout;
+
+        // The reserved connection is owned here until handed back on success;
+        // dispose it on every failure path so a slow/failed load never leaks it.
+        try
+        {
+            while (true)
+            {
+                var (result, error) = await PollLoadStateOnceAsync(solutionPath);
+
+                if (result == ReadinessPollResult.Ready)
+                    return readyClient;
+
+                if (result == ReadinessPollResult.Failed)
+                    throw new DaemonClientValidationException(error!);
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    throw new DaemonClientValidationException(new ErrorInfo(
+                        "DAEMON_STARTUP_READY_TIMEOUT",
+                        $"Daemon did not become ready within {readyTimeout.TotalSeconds:0}s.",
+                        new { stage = "ready", timeoutMs = (long)readyTimeout.TotalMilliseconds }));
+                }
+
+                await Task.Delay(pollInterval, cancellationToken);
+            }
+        }
+        catch
+        {
+            await readyClient.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static async Task<(ReadinessPollResult Result, ErrorInfo? Error)> PollLoadStateOnceAsync(string solutionPath)
+    {
+        var poll = await TryConnectAsync(solutionPath);
+        if (poll is null)
+        {
+            // Daemon briefly unreachable (e.g. mid-accept); treat as transient.
+            return (ReadinessPollResult.NotReady, null);
+        }
+
+        await using (poll)
+        {
+            DaemonResponse response;
+            try
+            {
+                response = await poll.SendAsync("status");
+            }
+            catch (DaemonTransportException)
+            {
+                // Transient transport hiccup on this poll; retry on the next one.
+                return (ReadinessPollResult.NotReady, null);
+            }
+
+            if (response.Status != DaemonResponseStatus.Ok)
+                return (ReadinessPollResult.NotReady, null);
+
+            if (!TryReadLoadState(response.Result, out var loadState, out var errorCode, out var errorMessage))
+                return (ReadinessPollResult.NotReady, null);
+
+            return loadState switch
+            {
+                "loaded" => (ReadinessPollResult.Ready, null),
+                "unloaded" when errorCode is not null => (
+                    ReadinessPollResult.Failed,
+                    new ErrorInfo(
+                        errorCode,
+                        errorMessage ?? "Daemon failed to load the solution.",
+                        new { stage = "ready", loadState })),
+                // "loading", or "unloaded" before the load has entered Loading:
+                // keep polling.
+                _ => (ReadinessPollResult.NotReady, null)
+            };
+        }
+    }
+
+    private static bool TryReadLoadState(
+        object? result,
+        out string? loadState,
+        out string? errorCode,
+        out string? errorMessage)
+    {
+        loadState = null;
+        errorCode = null;
+        errorMessage = null;
+
+        if (result is not JsonElement element || element.ValueKind != JsonValueKind.Object)
+            return false;
+
+        if (element.TryGetProperty("loadState", out var loadStateElement) && loadStateElement.ValueKind == JsonValueKind.String)
+            loadState = loadStateElement.GetString();
+
+        if (element.TryGetProperty("lastLoadErrorCode", out var errorCodeElement) && errorCodeElement.ValueKind == JsonValueKind.String)
+            errorCode = errorCodeElement.GetString();
+
+        if (element.TryGetProperty("lastLoadErrorMessage", out var errorMessageElement) && errorMessageElement.ValueKind == JsonValueKind.String)
+            errorMessage = errorMessageElement.GetString();
+
+        return loadState is not null;
     }
 
     private static async Task EmitProgressAfterAsync(TimeSpan delay, string message, CancellationToken ct, object gate)
