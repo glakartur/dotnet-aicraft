@@ -40,9 +40,12 @@ public sealed class DaemonClientReadinessTests
     public async Task ReadinessWait_LoadingPastBothThresholds_EmitsBothNoticesOnceInOrder()
     {
         var solutionPath = CreateUniqueSolutionPath();
-        // Report "loading" for several polls before "loaded" so the wait reliably
-        // crosses both injected notice thresholds.
-        var states = Enumerable.Repeat("loading", 8).Append("loaded").ToArray();
+        // Report "loading" for many polls (at 25ms each, ≥500ms) so the wait
+        // reliably crosses both notice thresholds. The two notice timers fire
+        // independently, so ordering only holds when their separation
+        // (secondNoticeAfter − firstNoticeAfter = 300ms here) comfortably exceeds
+        // any scheduler jitter on a loaded CI runner — a 25ms gap was racy.
+        var states = Enumerable.Repeat("loading", 20).Append("loaded").ToArray();
         await using var fake = await FakeStatusDaemon.StartAsync(solutionPath, states);
 
         using var capture = ConsoleOutputCapture.Start();
@@ -50,8 +53,8 @@ public sealed class DaemonClientReadinessTests
         var client = await DaemonClient.ConnectOrStartCoreAsync(
             () => ReservedOutcomeAsync(solutionPath),
             (outcome, ct) => DaemonClient.WaitForSolutionReadyAsync(solutionPath, outcome, ReadyTimeout, TimeSpan.FromMilliseconds(25), ct),
-            firstNoticeAfter: TimeSpan.FromMilliseconds(15),
-            secondNoticeAfter: TimeSpan.FromMilliseconds(40));
+            firstNoticeAfter: TimeSpan.FromMilliseconds(50),
+            secondNoticeAfter: TimeSpan.FromMilliseconds(350));
 
         await using (client)
         {
