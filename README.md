@@ -28,7 +28,7 @@ respond in ~50ms instead of waiting for a full reload every time.
 dotnet tool install -g dotnet-aicraft
 ```
 
-Requires .NET 9 SDK or later. Works on **Linux, macOS and Windows**.
+Requires .NET 10 SDK or later. Works on **Linux, macOS and Windows**.
 
 ---
 
