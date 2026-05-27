@@ -40,9 +40,16 @@ internal static class Entry
         else
         {
             TextOutput.WriteSolutionRootHeader(solutionDir);
-            var def = JsonOutput.Deserialize<DefinitionResult>((JsonElement)res.Result!);
-            if (def is not null)
-                TextOutput.WriteDefinition(def, solutionPath);
+            var groups = JsonOutput.Deserialize<IReadOnlyList<SymbolMatchGroup>>((JsonElement)res.Result!) ?? Array.Empty<SymbolMatchGroup>();
+            for (var i = 0; i < groups.Count; i++)
+            {
+                TextOutput.WriteMatchHeader(groups[i].Symbol, groups[i].Kind);
+                var def = JsonOutput.Deserialize<DefinitionResult>((JsonElement)groups[i].Result);
+                if (def is not null)
+                    TextOutput.WriteDefinition(def, solutionPath);
+                if (i < groups.Count - 1)
+                    Console.Out.WriteLine();
+            }
         }
     }
 }

@@ -31,8 +31,15 @@ internal static class Entry
         else
         {
             TextOutput.WriteSolutionRootHeader(solutionDir);
-            var items = JsonOutput.Deserialize<IReadOnlyList<SymbolResult>>((JsonElement)res.Result!) ?? Array.Empty<SymbolResult>();
-            TextOutput.WriteImpls(items, symbol, solutionPath);
+            var groups = JsonOutput.Deserialize<IReadOnlyList<SymbolMatchGroup>>((JsonElement)res.Result!) ?? Array.Empty<SymbolMatchGroup>();
+            for (var i = 0; i < groups.Count; i++)
+            {
+                TextOutput.WriteMatchHeader(groups[i].Symbol, groups[i].Kind);
+                var items = JsonOutput.Deserialize<IReadOnlyList<SymbolResult>>((JsonElement)groups[i].Result) ?? Array.Empty<SymbolResult>();
+                TextOutput.WriteImpls(items, symbol, solutionPath);
+                if (i < groups.Count - 1)
+                    Console.Out.WriteLine();
+            }
         }
     }
 }

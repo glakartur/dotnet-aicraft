@@ -7,7 +7,7 @@ namespace DotnetAICraft.Commands.Refs;
 
 internal static class UseCase
 {
-    internal static async Task<IReadOnlyList<ReferenceResult>> ResolveAsync(
+    internal static async Task<IReadOnlyList<SymbolMatchGroup>> ResolveAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -15,16 +15,20 @@ internal static class UseCase
         int? col,
         CancellationToken ct = default)
     {
-        ISymbol resolved = symbol is not null
-            ? await SymbolResolver.FromFullNameAsync(solution, symbol, ct)
-            : await SymbolResolver.FromLocationAsync(solution, file!, line!.Value, col!.Value, ct);
-
-        var refs = await SymbolFinder.FindReferencesAsync(resolved, solution, ct);
+        var targets = await SymbolResolver.ResolveTargetsAsync(solution, symbol, file, line, col, ct);
         var solutionDir = Path.GetDirectoryName(solution.FilePath) ?? string.Empty;
+        var groups = new List<SymbolMatchGroup>();
 
-        return refs
-            .SelectMany(reference => reference.Locations)
-            .Select(loc => OutputMapping.Map(loc, solutionDir))
-            .ToList();
+        foreach (var sym in targets)
+        {
+            var refs = await SymbolFinder.FindReferencesAsync(sym, solution, ct);
+            var items = refs
+                .SelectMany(reference => reference.Locations)
+                .Select(loc => OutputMapping.Map(loc, solutionDir))
+                .ToList();
+            groups.Add(new SymbolMatchGroup(sym.ToDisplayString(), sym.GetKindName(), items));
+        }
+
+        return groups;
     }
 }

@@ -25,10 +25,17 @@ internal static class UseCase
         if (!Validation.TryNormalizeDepth(depth, out var normalizedDepth, out var depthError))
             throw new DaemonValidationException(depthError!);
 
-        var resolved = symbol is not null
-            ? await SymbolResolver.FromFullNameAsync(solution, symbol.Trim(), ct)
-            : await SymbolResolver.FromLocationAsync(solution, file!, line!.Value, col!.Value, ct);
+        var targets = symbol is not null
+            ? await SymbolResolver.FromFullNameAllAsync(solution, symbol.Trim(), ct)
+            : [await SymbolResolver.FromLocationAsync(solution, file!, line!.Value, col!.Value, ct)];
 
-        return await OutputMapping.MapAsync(solution, resolved, normalizedDirection, normalizedDepth, ct);
+        var groups = new List<SymbolMatchGroup>();
+        foreach (var sym in targets)
+        {
+            var graph = await OutputMapping.MapAsync(solution, sym, normalizedDirection, normalizedDepth, ct);
+            groups.Add(new SymbolMatchGroup(sym.ToDisplayString(), sym.GetKindName(), graph));
+        }
+
+        return groups;
     }
 }

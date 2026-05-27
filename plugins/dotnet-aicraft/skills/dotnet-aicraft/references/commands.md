@@ -61,15 +61,25 @@ dotnet aicraft refs --solution App.sln \
 
 ### Output Schema (`--format json`)
 
+Results are grouped per matched symbol: a parameterless fully-qualified name can match
+several overloads (and a constructor name matches each constructor), so `refs` returns one
+group per match, each with its own `result` array.
+
 ```json
 {
   "solutionRoot": "/abs/path/to/repo",
   "items": [
     {
-      "file": "src/Controllers/OrderController.cs",
-      "line": 87,
-      "col": 9,
-      "context": "_orderService.ProcessOrder(dto.ToRequest());"
+      "symbol": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+      "kind": "method",
+      "result": [
+        {
+          "file": "src/Controllers/OrderController.cs",
+          "line": 87,
+          "col": 9,
+          "context": "_orderService.ProcessOrder(dto.ToRequest());"
+        }
+      ]
     }
   ]
 }
@@ -80,15 +90,15 @@ dotnet aicraft refs --solution App.sln \
 ```
 SolutionRoot: /abs/path/to/repo
 
+match: method MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)
 references:
 src/Controllers/OrderController.cs:87:9: _orderService.ProcessOrder(dto.ToRequest());
 ```
 
-All list-shaped commands (`refs`, `impls`, `callers`, `symbols`, `unused`,
-`diagnostics`, `definition`) follow the same envelope: a `SolutionRoot:` header,
-a blank line, then a `<label>:` row (optionally with a parenthesized annotation
-such as `(no results)`, `(more available — use --offset to continue)`, or
-filter metadata for `unused`) followed by the data rows.
+`refs`, `impls`, `callers`, and `definition` group their output per matched symbol:
+each group is a `{ symbol, kind, result }` item under `items` (JSON), and in text format
+each is introduced by a `match: <kind> <symbol>` header before its `<label>:` section.
+The other list commands (`symbols`, `unused`, `diagnostics`) keep a flat `items` array.
 
 ---
 
@@ -108,21 +118,31 @@ Resolve the declaration of a symbol by source location or fully-qualified name.
 
 ### Output Schema (`--format json`)
 
+Grouped per matched symbol (one group per overload / constructor). Each `result` is the
+definition record; `file/line/col` may be null for metadata-only symbols.
+
 ```json
 {
   "solutionRoot": "/abs/path/to/repo",
-  "fullName": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
-  "kind": "method",
-  "file": "src/Services/OrderService.cs",
-  "line": 42,
-  "col": 18,
-  "containingType": "MyApp.Services.OrderService",
-  "containingNamespace": "MyApp.Services"
+  "items": [
+    {
+      "symbol": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+      "kind": "method",
+      "result": {
+        "fullName": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+        "kind": "method",
+        "file": "src/Services/OrderService.cs",
+        "line": 42,
+        "col": 18,
+        "containingType": "MyApp.Services.OrderService",
+        "containingNamespace": "MyApp.Services"
+      }
+    }
+  ]
 }
 ```
 
-For metadata-only symbols (assembly references), `file/line/col` may be null.
-Use `fullName` for follow-up commands (`refs`, `callers`, `rename`).
+Use `result.fullName` for follow-up commands (`refs`, `callers`, `rename`).
 
 ---
 
@@ -195,16 +215,27 @@ Find all implementations of an interface or abstract member.
 
 ### Output Schema (`--format json`)
 
+Grouped per matched symbol; each `result` is the list of implementing symbols.
+
 ```json
 {
   "solutionRoot": "/abs/path/to/repo",
   "items": [
     {
-      "symbol": "MyApp.Services.OrderService",
-      "file": "src/Services/OrderService.cs",
-      "line": 12,
-      "col": 14,
-      "context": "public class OrderService : IOrderProcessor"
+      "symbol": "MyApp.Interfaces.IOrderProcessor",
+      "kind": "interface",
+      "result": [
+        {
+          "name": "OrderService",
+          "fullName": "MyApp.Services.OrderService",
+          "kind": "class",
+          "file": "src/Services/OrderService.cs",
+          "line": 12,
+          "col": 14,
+          "containingType": null,
+          "containingNamespace": "MyApp.Services"
+        }
+      ]
     }
   ]
 }
@@ -214,8 +245,8 @@ Find all implementations of an interface or abstract member.
 
 ## `dotnet aicraft callers`
 
-Find call sites that invoke a method (call hierarchy). Always returns a
-`CallGraphResult` graph regardless of direction or depth.
+Find call sites that invoke a method (call hierarchy). Each matched symbol gets a
+`CallGraphResult` graph (regardless of direction or depth), wrapped in a result group.
 
 ### Options
 
@@ -248,24 +279,33 @@ dotnet aicraft callers --solution App.sln \
 
 ### Output Schema (`--format json`)
 
-All invocations return `CallGraphResult`:
+Grouped per matched symbol; each `result` is a `CallGraphResult`:
 
 ```json
 {
   "solutionRoot": "/abs/path",
-  "rootId": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
-  "direction": "incoming",
-  "depth": 1,
-  "nodes": [
-    { "id": "MyApp.Services.OrderService.ProcessOrder(...)", "fullName": "...", "kind": "method",
-      "file": "src/Services/OrderService.cs", "line": 42, "col": 18,
-      "containingType": "MyApp.Services.OrderService", "containingNamespace": "MyApp.Services" }
-  ],
-  "edges": [
-    { "from": "MyApp.Controllers.OrderController.Post(...)", "to": "MyApp.Services.OrderService.ProcessOrder(...)",
-      "relation": "incoming", "isDirect": true }
+  "items": [
+    {
+      "symbol": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+      "kind": "method",
+      "result": {
+        "rootId": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+        "direction": "incoming",
+        "depth": 1,
+        "nodes": [
+          { "id": "MyApp.Services.OrderService.ProcessOrder(...)", "fullName": "...", "kind": "method",
+            "file": "src/Services/OrderService.cs", "line": 42, "col": 18,
+            "containingType": "MyApp.Services.OrderService", "containingNamespace": "MyApp.Services" }
+        ],
+        "edges": [
+          { "from": "MyApp.Controllers.OrderController.Post(...)", "to": "MyApp.Services.OrderService.ProcessOrder(...)",
+            "relation": "incoming", "isDirect": true }
+        ]
+      }
+    }
   ]
 }
+```
 
 ---
 

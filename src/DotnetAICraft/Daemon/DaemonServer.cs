@@ -358,25 +358,31 @@ public sealed class DaemonServer : IAsyncDisposable
         var solution = GetSolution();
 
         var symbolName = GetOptionalString(p, "symbol");
-        ISymbol symbol = symbolName is not null
-            ? await SymbolResolver.FromFullNameAsync(solution, symbolName, ct)
-            : await SymbolResolver.FromLocationAsync(solution,
+        var targets = symbolName is not null
+            ? await SymbolResolver.FromFullNameAllAsync(solution, symbolName, ct)
+            : [await SymbolResolver.FromLocationAsync(solution,
                 GetRequiredString(p, "file"),
                 GetRequiredInt(p, "line"),
-                GetRequiredInt(p, "col"), ct);
+                GetRequiredInt(p, "col"), ct)];
 
-        var refs = await SymbolFinder.FindReferencesAsync(symbol, solution, ct);
         var solutionDir = GetSolutionDir(solution);
+        var groups = new List<Models.SymbolMatchGroup>();
 
-        return refs
-            .SelectMany(r => r.Locations)
-            .Select(loc =>
-            {
-                var (file, line, col) = loc.Location.GetFileLineColRelative(solutionDir);
-                return new Models.ReferenceResult(file, line, col,
-                    loc.Location.GetContextLine());
-            })
-            .ToList();
+        foreach (var symbol in targets)
+        {
+            var refs = await SymbolFinder.FindReferencesAsync(symbol, solution, ct);
+            var items = refs
+                .SelectMany(r => r.Locations)
+                .Select(loc =>
+                {
+                    var (file, line, col) = loc.Location.GetFileLineColRelative(solutionDir);
+                    return new Models.ReferenceResult(file, line, col, loc.Location.GetContextLine());
+                })
+                .ToList();
+            groups.Add(new Models.SymbolMatchGroup(symbol.ToDisplayString(), symbol.GetKindName(), items));
+        }
+
+        return groups;
     }
 
     private async Task<object> HandleDefinitionAsync(DaemonRequest req, CancellationToken ct)
@@ -389,7 +395,22 @@ public sealed class DaemonServer : IAsyncDisposable
         var line = GetOptionalInt(p, "line");
         var col = GetOptionalInt(p, "col");
 
-        return await ResolveDefinitionAsync(solution, symbol, file, line, col, ct);
+        try
+        {
+            DotnetAICraft.Commands.Definition.Validation.ValidateDaemonArgs(symbol, file, line, col);
+            var targets = await SymbolResolver.ResolveTargetsAsync(solution, symbol, file, line, col, ct);
+            var solutionDir = GetSolutionDir(solution);
+            return targets
+                .Select(s => new Models.SymbolMatchGroup(
+                    s.ToDisplayString(),
+                    s.GetKindName(),
+                    DotnetAICraft.Commands.Definition.OutputMapping.Map(s, solutionDir)))
+                .ToList();
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
     }
 
     private async Task<object> HandleRenameAsync(DaemonRequest req, CancellationToken ct)

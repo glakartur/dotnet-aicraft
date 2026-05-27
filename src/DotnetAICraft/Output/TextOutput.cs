@@ -16,6 +16,11 @@ public static class TextOutput
         Console.Out.WriteLine();
     }
 
+    // Header printed before each matched symbol's section. A parameterless fully-qualified name can
+    // match several overloads, so refs/impls/callers/definition render one labelled group per match.
+    public static void WriteMatchHeader(string symbol, string kind)
+        => Console.Out.WriteLine($"match: {kind} {symbol}");
+
     private static void WriteSectionLabel(string label, string? annotation)
     {
         if (annotation is null)

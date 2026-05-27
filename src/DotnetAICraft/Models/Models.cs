@@ -6,6 +6,16 @@ public record ReferenceResult(
     int Col,
     string Context);
 
+/// <summary>
+/// One resolved symbol and its per-symbol payload (references, implementations, call graph, or
+/// definition). A fully-qualified name without a parameter signature can match several overloads,
+/// so refs/impls/callers/definition always return a list of these groups — one per matched symbol.
+/// </summary>
+public record SymbolMatchGroup(
+    string Symbol,
+    string Kind,
+    object Result);
+
 public record CallerResult(
     string CallerSymbol,
     string CallerKind,

@@ -55,9 +55,16 @@ internal static class Entry
         {
             TextOutput.WriteSolutionRootHeader(solutionDir);
             var target = !string.IsNullOrWhiteSpace(symbol) ? symbol! : $"{file!.FullName}:{line}:{col}";
-            var graph = JsonOutput.Deserialize<CallGraphResult>((JsonElement)res.Result!);
-            if (graph is not null)
-                TextOutput.WriteCallers(graph, target, solutionPath);
+            var groups = JsonOutput.Deserialize<IReadOnlyList<SymbolMatchGroup>>((JsonElement)res.Result!) ?? Array.Empty<SymbolMatchGroup>();
+            for (var i = 0; i < groups.Count; i++)
+            {
+                TextOutput.WriteMatchHeader(groups[i].Symbol, groups[i].Kind);
+                var graph = JsonOutput.Deserialize<CallGraphResult>((JsonElement)groups[i].Result);
+                if (graph is not null)
+                    TextOutput.WriteCallers(graph, target, solutionPath);
+                if (i < groups.Count - 1)
+                    Console.Out.WriteLine();
+            }
         }
     }
 }

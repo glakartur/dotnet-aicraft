@@ -44,6 +44,135 @@ public class SymbolResolverFromFullNameTests
     }
 
     [Fact]
+    public async Task FromFullNameAsync_Constructor_ResolvedByRepeatedTypeName()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+
+            public class MyService
+            {
+                public MyService(string arg) {}
+            }
+            """);
+
+        var symbol = await SymbolResolver.FromFullNameAsync(solution, "Demo.Services.MyService.MyService");
+
+        Assert.NotNull(symbol);
+        Assert.Equal(SymbolKind.Method, symbol.Kind);
+        Assert.Equal(MethodKind.Constructor, ((IMethodSymbol)symbol).MethodKind);
+    }
+
+    [Fact]
+    public async Task FromFullNameAsync_Constructor_ResolvedByDisplayStringWithParameters()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+
+            public class MyService
+            {
+                public MyService(string arg) {}
+            }
+            """);
+
+        var symbol = await SymbolResolver.FromFullNameAsync(
+            solution, "Demo.Services.MyService.MyService(string)");
+
+        Assert.Equal(MethodKind.Constructor, ((IMethodSymbol)symbol).MethodKind);
+    }
+
+    [Fact]
+    public async Task FromFullNameAsync_ImplicitDefaultConstructor_Resolves()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+            public class MyService {}
+            """);
+
+        var symbol = await SymbolResolver.FromFullNameAsync(solution, "Demo.Services.MyService.MyService");
+
+        Assert.Equal(MethodKind.Constructor, ((IMethodSymbol)symbol).MethodKind);
+        Assert.True(symbol.IsImplicitlyDeclared);
+    }
+
+    [Fact]
+    public async Task FromFullNameAsync_MethodWithParameterSignature_RoundTripsSymbolsOutput()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+
+            public class MyService
+            {
+                public void Run(string arg) {}
+            }
+            """);
+
+        var symbol = await SymbolResolver.FromFullNameAsync(
+            solution, "Demo.Services.MyService.Run(string)");
+
+        Assert.Equal("Run", symbol.Name);
+        Assert.Equal(SymbolKind.Method, symbol.Kind);
+    }
+
+    [Fact]
+    public async Task FromFullNameAllAsync_OverloadedMethod_ReturnsAllMatches()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+
+            public class MyService
+            {
+                public void Run(string arg) {}
+                public void Run(int arg) {}
+            }
+            """);
+
+        var symbols = await SymbolResolver.FromFullNameAllAsync(solution, "Demo.Services.MyService.Run");
+
+        Assert.Equal(2, symbols.Count);
+        Assert.All(symbols, s => Assert.Equal("Run", s.Name));
+    }
+
+    [Fact]
+    public async Task FromFullNameAsync_AmbiguousOverload_ThrowsWithCandidateList()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+
+            public class MyService
+            {
+                public void Run(string arg) {}
+                public void Run(int arg) {}
+            }
+            """);
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(
+            () => SymbolResolver.FromFullNameAsync(solution, "Demo.Services.MyService.Run"));
+
+        Assert.Contains("ambiguous", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Run(string)", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Run(int)", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FromFullNameAllAsync_ExplicitConstructorOnly_DoesNotInventParameterlessCtor()
+    {
+        var solution = BuildSolution("""
+            namespace Demo.Services;
+
+            public sealed class MyService
+            {
+                private MyService(int x) {}
+            }
+            """);
+
+        var matches = await SymbolResolver.FromFullNameAllAsync(solution, "Demo.Services.MyService.MyService");
+
+        // The class declares an explicit ctor, so C# does NOT synthesize a parameterless one.
+        var match = Assert.Single(matches);
+        Assert.Equal("Demo.Services.MyService.MyService(int)", match.ToDisplayString());
+    }
+
+    [Fact]
     public async Task FromFullNameAsync_UnknownSymbol_ThrowsArgumentException()
     {
         var solution = BuildSolution("namespace Demo; public class Foo {}");

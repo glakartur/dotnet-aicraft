@@ -150,28 +150,43 @@ dotnet aicraft refs --solution App.sln --file src/Services/OrderService.cs --lin
 
 # By fully-qualified name
 dotnet aicraft refs --solution App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
+
+# A constructor — by the repeated type name, with parameters, or via #ctor
+dotnet aicraft refs --solution App.sln --symbol "MyApp.Services.OrderService.OrderService"
 ```
+
+Results are grouped per matched symbol. A fully-qualified name without a
+parameter signature can match several overloads, so `refs` (like `impls`,
+`callers`, and `definition`) returns one group per match, each carrying its own
+`result`:
 
 ```json
 {
   "solutionRoot": "/home/me/App",
   "items": [
     {
-      "file": "src/Controllers/OrderController.cs",
-      "line": 87,
-      "col": 9,
-      "context": "_orderService.ProcessOrder(dto.ToRequest());"
-    },
-    {
-      "file": "tests/OrderServiceTests.cs",
-      "line": 34,
-      "col": 22,
-      "context": "var result = await _sut.ProcessOrder(request);"
+      "symbol": "MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)",
+      "kind": "method",
+      "result": [
+        {
+          "file": "src/Controllers/OrderController.cs",
+          "line": 87,
+          "col": 9,
+          "context": "_orderService.ProcessOrder(dto.ToRequest());"
+        },
+        {
+          "file": "tests/OrderServiceTests.cs",
+          "line": 34,
+          "col": 22,
+          "context": "var result = await _sut.ProcessOrder(request);"
+        }
+      ]
     }
   ]
 }
 ```
 
+In `--format text` each group is preceded by a `match: <kind> <symbol>` header.
 File paths are emitted relative to the solution directory with forward-slash
 separators; the absolute root is surfaced once via `solutionRoot` (JSON) or a
 `SolutionRoot: <abs path>` header line in text format.
@@ -264,12 +279,23 @@ dotnet aicraft symbols --solution App.sln --pattern "Process*" --kind method
 dotnet aicraft symbols --solution App.sln --pattern "I*" --kind interface
 dotnet aicraft symbols --solution App.sln --pattern "*Repository" --kind class
 
+# Constructors of a class — pattern matches the type name, results expand to its constructors
+dotnet aicraft symbols --solution App.sln --pattern "OrderService" --kind constructor
+
 # Pagination
 
 dotnet aicraft symbols --solution App.sln --pattern "*" --kind all --limit 100 --offset 200
 ```
 
 Valid `--kind` values: `all` (default), `type`, `member`, `namespace`, `class`, `interface`, `struct`, `enum`, `delegate`, `method`, `constructor`, `property`, `field`, `event`. Default page size is 200 (max 2000); use `--offset` to paginate.
+
+`--pattern` matches the **simple symbol name** — a bare string is a case-insensitive
+substring match, while `*`/`?` switch to an anchored glob. For `--kind constructor`
+the pattern matches the **type** name and each match expands to that type's
+constructors, so `--pattern "OrderService"` returns the constructors of every type
+whose name contains `OrderService`; pick the right one from the fully-qualified
+names in the output. The listing omits a class's implicit default constructor; to
+address it, resolve by name instead (`refs --symbol "Ns.OrderService.OrderService"`).
 
 `symbols` returns paged JSON:
 

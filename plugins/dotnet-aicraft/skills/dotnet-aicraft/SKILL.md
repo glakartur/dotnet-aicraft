@@ -86,7 +86,19 @@ dotnet aicraft symbols --pattern "MethodName*"
 dotnet aicraft symbols -s App.sln --pattern "*ClassName*" --kind class
 ```
 
-Use the `fullName` field from the result in all follow-up commands.
+Use the `fullName` field from the result in all follow-up commands. Both the parameterless
+form (`Ns.Type.Method`) and the parameterized form printed by `symbols`
+(`Ns.Type.Method(System.String)`) resolve; pass the parameterized form to disambiguate overloads.
+
+Constructors are addressable by the repeated type name (`Ns.Type.Type`), with parameters
+(`Ns.Type.Type(System.String)`), or via `Ns.Type.#ctor` — including a class's implicit default
+constructor.
+
+When a parameterless name matches multiple overloads, the read-only commands (`refs`, `impls`,
+`callers`, `definition`) return one labelled result group per matched symbol — in `--format text`
+each group is preceded by a `match: <kind> <symbol>` header; in `--format json` the envelope is
+`{ solutionRoot, items: [ { symbol, kind, result } ] }`. `rename` instead reports the candidate
+signatures and asks you to disambiguate (it never renames an ambiguous match).
 
 ## Output Format
 
@@ -105,7 +117,7 @@ File paths in results are **relative to the solution directory** with forward-sl
 - In `--format text`: a `SolutionRoot: <abs path>` header line.
 - In `--format json`: a top-level `solutionRoot` field on the envelope.
 
-For list-shaped results (`refs`, `impls`, `symbols`, `diagnostics`, `unused`) the JSON envelope is `{ "solutionRoot": "...", "items": [...] }` — the list lives under `items`, not as a top-level array.
+All list-shaped results use the JSON envelope `{ "solutionRoot": "...", "items": [...] }` — the list lives under `items`, not as a top-level array. For `refs`, `impls`, `callers`, and `definition` each `items` entry is a per-matched-symbol group `{ symbol, kind, result }` (a parameterless name can match several overloads); in text these are introduced by a `match: <kind> <symbol>` header. `symbols`, `diagnostics`, and `unused` keep flat `items` rows.
 
 ## When to Use Proactively
 
@@ -163,15 +175,17 @@ dotnet aicraft refs -s App.sln --file src/Services/OrderService.cs --line 42 --c
 dotnet aicraft refs -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
 ```
 
-Output (`--format json`): `{ solutionRoot, items: [{ file, line, col, context }] }`
+Output is grouped per matched symbol (one group per overload / constructor).
 Output (`--format text`, default):
 ```
 SolutionRoot: /abs/path/to/repo
 
+match: method MyApp.Services.OrderService.ProcessOrder(MyApp.Contracts.OrderRequest)
 references:
 src/Controllers/OrderController.cs:87:9: _orderService.ProcessOrder(...);
 ...
 ```
+Output (`--format json`): `{ solutionRoot, items: [{ symbol, kind, result: [{ file, line, col, context }] }] }`
 
 ### rename — Safe Rename
 
@@ -194,7 +208,7 @@ dotnet aicraft definition -s App.sln --file Services/OrderService.cs --line 42 -
 dotnet aicraft definition -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder"
 ```
 
-Output: `DefinitionResult` — if metadata-only, `file/line/col` will be null. Use `fullName` for follow-up commands.
+Output is grouped per matched symbol; each `result` is a `DefinitionResult` (`file/line/col` null for metadata-only). Text: a `match: <kind> <symbol>` header then a `definition:` line per group. JSON: `{ solutionRoot, items: [{ symbol, kind, result }] }`. Use `result.fullName` for follow-up commands.
 
 ### impls — Find Implementations
 
@@ -202,7 +216,7 @@ Output: `DefinitionResult` — if metadata-only, `file/line/col` will be null. U
 dotnet aicraft impls -s App.sln --symbol "MyApp.Interfaces.IOrderProcessor"
 ```
 
-Output: JSON array of implementing types with file locations.
+Output is grouped per matched symbol; each `result` is the array of implementing types with file locations. Text: a `match:` header then an `implementations:` section per group. JSON: `{ solutionRoot, items: [{ symbol, kind, result: [...] }] }`.
 
 ### callers — Call Graph
 
@@ -217,7 +231,7 @@ dotnet aicraft callers -s App.sln --symbol "MyApp.Services.OrderService.ProcessO
 dotnet aicraft callers -s App.sln --symbol "MyApp.Services.OrderService.ProcessOrder" --direction both --depth 2
 ```
 
-Output: `CallGraphResult { rootId, direction, depth, nodes[], edges[] }`
+Output is grouped per matched symbol; each `result` is a `CallGraphResult { rootId, direction, depth, nodes[], edges[] }`. Text: a `match:` header then `callers:`/`callees:` per group. JSON: `{ solutionRoot, items: [{ symbol, kind, result }] }`.
 
 ### diagnostics — Roslyn Diagnostics
 
@@ -248,10 +262,19 @@ dotnet aicraft symbols --pattern "Process*"
 dotnet aicraft symbols -s App.sln --pattern "Process*"
 dotnet aicraft symbols -s App.sln --pattern "Process*" --kind method
 dotnet aicraft symbols -s App.sln --pattern "*" --kind class --limit 100 --offset 200
+
+# Constructors of a class — pattern matches the TYPE name, results expand to its constructors
+dotnet aicraft symbols -s App.sln --pattern "OrderService" --kind constructor
 ```
 
 Kinds: `class|interface|struct|enum|delegate|method|constructor|property|field|event|type|member|namespace|all`
 Output: `SymbolsResultPage { items[], hasMore }`
+
+`--pattern` matches the simple symbol name (bare = case-insensitive substring; `*`/`?` = anchored glob).
+For `--kind constructor` it matches the **type** name and expands to that type's constructors — so
+`--pattern "OrderService"` also returns constructors of any type whose name contains `OrderService`
+(disambiguate via the fully-qualified names in the output). Note the asymmetry: this listing omits a
+class's implicit default constructor, but `refs`/`callers --symbol "Ns.Type.Type"` still resolves it.
 
 ### server — Daemon Management
 
