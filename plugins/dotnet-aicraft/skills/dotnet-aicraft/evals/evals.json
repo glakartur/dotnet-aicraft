@@ -1,0 +1,34 @@
+{
+  "skill_name": "dotnet-aicraft",
+  "notes": "Eval target is this repo's own solution (dotnet-aicraft.sln). The `dotnet aicraft` CLI is installed and runnable. Prompts are grounded in real symbols so old-vs-new skill runs are directly comparable. All prompts are read-only or --dry-run; none mutate the working tree.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "blast-radius-refs",
+      "prompt": "I'm about to change the constructor of the DaemonTransportException class in this .NET solution. Before I touch it I need the full blast radius: every place in the solution that references DaemonTransportException, across both src and tests. Give me the complete list with file and line.",
+      "expected_output": "Uses dotnet aicraft refs (discovering the FQN via symbols first if needed) rather than grep/Glob/Read. Returns the full reference set including both src/ and tests/ locations.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "call-graph-callers",
+      "prompt": "There's a helper method BuildTransportError inside DaemonClient. I want to understand its incoming call sites — what calls it? Show me the callers.",
+      "expected_output": "Uses dotnet aicraft callers (default incoming direction), resolving the FQN of DaemonClient.BuildTransportError. Does not grep for the method name.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "rename-safety",
+      "prompt": "I'd like to rename the method IsTransportFailure to IsTransportException across the whole solution. Is that safe, and what exactly would change? Do NOT apply anything yet — I just want to see the impact first.",
+      "expected_output": "Discovers the FQN (symbols), then runs rename --dry-run and reports the changes[] without applying. Does not perform a manual find/replace.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "dead-code-scan",
+      "prompt": "Are there any dead or unused methods in the DotnetAICraft source project (src/DotnetAICraft) that I could safely delete? I want candidates with some confidence signal, not guesses.",
+      "expected_output": "Uses dotnet aicraft unused (optionally narrowed to the project) and may confirm with refs. Does not attempt to infer dead code by reading files or grepping.",
+      "files": []
+    }
+  ]
+}

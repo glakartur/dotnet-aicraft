@@ -171,6 +171,36 @@ In scripts or agents processing the output, always check for the `error` field b
 
 ---
 
+## Pattern 8: Diagnostics as a Fast Pre-Flight / Post-Edit Check
+
+`dotnet aicraft diagnostics --severity error` answers from the already-loaded
+daemon in ~50ms — far cheaper than a full `dotnet build` — so it is worth running
+as a quick gate around edits, not just when chasing a reported error.
+
+```bash
+# Before a refactor: capture the baseline, so you can tell errors your change
+# introduces apart from ones that were already there.
+dotnet aicraft diagnostics --severity error
+
+# After an edit or rename: confirm you didn't add new errors.
+dotnet aicraft diagnostics --severity error
+
+# Before running the suite: compile errors fail the test build anyway — catch
+# them here instead of waiting for `dotnet test`. Narrow to the area you touched.
+dotnet aicraft diagnostics --severity error --project-name MyApp.Core
+```
+
+Narrow with `--project-name` or `--file` to focus on what you changed.
+`--severity` is an **exact-match** filter, not a threshold: `error` returns only
+errors, `warning` only warnings. So a thorough post-edit pass is two calls —
+`--severity error` for compile blockers, then `--severity warning` for
+analyzer/style ("bad practices"). Avoid bare `--severity all` as a default: it
+also returns `hidden` IDE suggestions and is usually noise. This is a Roslyn
+semantic check, not a style linter — it sees what the compiler and the
+configured analyzers see.
+
+---
+
 ## Common Mistakes to Avoid
 
 | Mistake | Fix |
