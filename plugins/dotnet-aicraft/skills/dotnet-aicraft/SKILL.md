@@ -1,16 +1,19 @@
 ---
 name: dotnet-aicraft
 description: >
-  Roslyn-powered semantic code intelligence for .NET solutions via the `dotnet aicraft` CLI:
-  compiler-precise references, call graphs, implementations, definitions, safe renames, dead-code
-  and diagnostics. A background daemon answers in ~50ms.
+  Understand and safely change .NET/C#/F#/VB.NET code with compiler-grade certainty: find every
+  real reference, caller, implementation and override; jump to definitions; rename symbols
+  without breaking the build; surface dead code and compiler errors. The payoff is correct
+  answers and safe edits on symbol-level questions where text search quietly gives wrong ones —
+  with far less time spent hunting through files.
 
-  Use whenever .NET/C#/F#/VB.NET code is in scope (any .sln/.csproj/.cs/.vb/.fs visible or
-  mentioned) — reach for it BEFORE grep/Glob/ripgrep/Read on any symbol-level question, since
-  text search misses interface dispatch, overrides, extension methods, generics and partial
-  classes. Triggers: "find references/usages", "who calls X", "go to definition",
-  "what implements X", "rename symbol", "is this dead code", "find unused", "compiler errors".
-version: 0.8.0
+  Use this PROACTIVELY whenever .NET/C#/F#/VB.NET code is in scope (any .sln/.csproj/.cs/.vb/.fs
+  visible or mentioned). It is a drop-in replacement for the Search tool, grep/Glob/ripgrep and
+  Read for any symbol-level question — reach for it FIRST, since text search misses interface
+  dispatch, overrides, extension methods, generics and partial classes. Triggers: "find
+  references/usages", "who calls X", "go to definition", "what implements X", "rename symbol",
+  "is this dead code", "find unused", "compiler errors".
+version: 0.8.1
 ---
 
 # dotnet-aicraft
