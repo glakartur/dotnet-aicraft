@@ -4,16 +4,27 @@ description: >
   Understand and safely change .NET/C#/F#/VB.NET code with compiler-grade certainty: find every
   real reference, caller, implementation and override; jump to definitions; rename symbols
   without breaking the build; surface dead code and compiler errors. The payoff is correct
-  answers and safe edits on symbol-level questions where text search quietly gives wrong ones —
-  with far less time spent hunting through files.
+  answers and safe edits where text search quietly gives wrong ones — with far less time spent
+  hunting through files.
 
-  Use this PROACTIVELY whenever .NET/C#/F#/VB.NET code is in scope (any .sln/.csproj/.cs/.vb/.fs
-  visible or mentioned). It is a drop-in replacement for the Search tool, grep/Glob/ripgrep and
-  Read for any symbol-level question — reach for it FIRST, since text search misses interface
-  dispatch, overrides, extension methods, generics and partial classes. Triggers: "find
-  references/usages", "who calls X", "go to definition", "what implements X", "rename symbol",
-  "is this dead code", "find unused", "compiler errors".
-version: 0.8.1
+  STOP before you locate, search, trace, or read .NET/C#/F#/VB.NET code by any text- or
+  file-based means — whether a Bash command (`grep -r`, `find -name "*.cs"`, `cat`/`head` a
+  `.cs`/`.vb`/`.fs` file, `ls`) or a dedicated tool (Search, Grep, Glob, Read). Use this instead;
+  it is their drop-in replacement and it is more accurate, because text search misses interface
+  dispatch, overrides, extension methods, generics and partial classes.
+
+  This is NOT only for explicit symbol questions. The most common moment to reach for it is
+  open-ended orientation: exploring or understanding an unfamiliar .NET codebase, scoping a
+  change, or tracing how a type/DTO/table/field/feature flows through the code as part of any
+  task (a Jira ticket, a bugfix, a refactor). The instinct to `grep -r`/`find` your way around
+  to get your bearings is exactly when this answers the question correctly and faster. When you
+  delegate exploration to a subagent, tell it to use this skill too.
+
+  Triggers: "find references/usages", "who calls X", "go to definition", "what implements X",
+  "where is X defined", "find/locate the class/method/file", "how does this flow / where is it
+  set", "rename symbol", "is this dead code", "find unused", "compiler errors" — and any time a
+  .sln/.csproj/.cs/.vb/.fs is in scope or mentioned.
+version: 0.9.0
 ---
 
 # dotnet-aicraft
