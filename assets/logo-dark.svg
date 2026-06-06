@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 420" width="1280" height="420" role="img" aria-label="dotnet AI Craft">
+  <defs>
+    <linearGradient id="hexFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6E40F0"/>
+      <stop offset="1" stop-color="#3F1FA8"/>
+    </linearGradient>
+    <linearGradient id="nFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3A1E8A"/>
+      <stop offset="1" stop-color="#1C0E54"/>
+    </linearGradient>
+    <filter id="rimBlur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.6"/>
+    </filter>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A98BFF"/>
+      <stop offset="1" stop-color="#19E0E6"/>
+    </linearGradient>
+    <linearGradient id="brandH" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9B6BFF"/>
+      <stop offset="1" stop-color="#19E0E6"/>
+    </linearGradient>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#20202E"/>
+      <stop offset="1" stop-color="#0C0C14"/>
+    </linearGradient>
+    <radialGradient id="glowP" cx="0.18" cy="0.45" r="0.34">
+      <stop offset="0" stop-color="#7C4DFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#7C4DFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="netGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="8" y="8" width="1264" height="404" rx="64" fill="url(#plate)" stroke="#2E2E40" stroke-width="2"/>
+  <rect x="8" y="8" width="1264" height="404" rx="64" fill="url(#glowP)"/>
+
+  <!-- BACKGROUND: solid .NET hexagon badge with "N" -->
+  <g filter="url(#glow)">
+    <polygon points="375,210 307.5,326.9 172.5,326.9 105,210 172.5,93.1 307.5,93.1" fill="url(#hexFill)"/>
+    <polygon points="375,210 307.5,93.1 172.5,93.1 105,210" fill="#ffffff" opacity="0.08"/>
+  </g>
+  <!-- neural network inside the hexagon, 3 -> 2 fully connected -->
+  <g filter="url(#netGlow)">
+    <g stroke="url(#brand)" stroke-width="5" stroke-linecap="round" opacity="0.9">
+      <line x1="177" y1="150" x2="303" y2="180"/>
+      <line x1="177" y1="150" x2="303" y2="240"/>
+      <line x1="177" y1="210" x2="303" y2="180"/>
+      <line x1="177" y1="210" x2="303" y2="240"/>
+      <line x1="177" y1="270" x2="303" y2="180"/>
+      <line x1="177" y1="270" x2="303" y2="240"/>
+    </g>
+    <g stroke="#ffffff" stroke-width="3">
+      <circle cx="177" cy="150" r="14" fill="#C9B6FF"/>
+      <circle cx="177" cy="210" r="14" fill="#C9B6FF"/>
+      <circle cx="177" cy="270" r="14" fill="#C9B6FF"/>
+      <circle cx="303" cy="180" r="14" fill="#19E0E6"/>
+      <circle cx="303" cy="240" r="14" fill="#19E0E6"/>
+    </g>
+  </g>
+
+  <!-- wordmark -->
+  <text x="440" y="248" font-family="Fira Sans" font-size="104" letter-spacing="1">
+    <tspan font-weight="300" fill="#D7D7E2">dotnet</tspan><tspan dx="34" font-weight="800" fill="url(#brandH)">AI Craft</tspan>
+  </text>
+  <text x="442" y="312" font-family="Fira Sans" font-weight="400" font-size="34" letter-spacing="6" fill="#7E7E92">SEMANTIC CODE INTELLIGENCE FOR .NET</text>
+</svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="AICraft icon">
+  <defs>
+    <linearGradient id="hexFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6E40F0"/>
+      <stop offset="1" stop-color="#3F1FA8"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A98BFF"/>
+      <stop offset="1" stop-color="#19E0E6"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22222F"/>
+      <stop offset="1" stop-color="#0C0C14"/>
+    </linearGradient>
+    <filter id="hexGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="netGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- dark FRAME around the hexagon -->
+  <polygon points="386,188 321,300.6 191,300.6 126,188 191,75.4 321,75.4"
+           fill="url(#dark)" stroke="#14141E" stroke-width="18" stroke-linejoin="round"/>
+
+  <!-- .NET hexagon badge -->
+  <g filter="url(#hexGlow)">
+    <polygon points="374,188 315,290.2 197,290.2 138,188 197,85.8 315,85.8"
+             fill="url(#hexFill)" stroke="#6E40F0" stroke-width="6" stroke-linejoin="round"/>
+    <polygon points="374,188 315,85.8 197,85.8 138,188" fill="#ffffff" opacity="0.08"/>
+  </g>
+
+  <!-- neural network inside (dots + connections), 3 -> 2 fully connected -->
+  <g filter="url(#netGlow)">
+    <g stroke="url(#brand)" stroke-width="4.5" stroke-linecap="round" opacity="0.92">
+      <line x1="198" y1="138" x2="314" y2="163"/>
+      <line x1="198" y1="138" x2="314" y2="213"/>
+      <line x1="198" y1="188" x2="314" y2="163"/>
+      <line x1="198" y1="188" x2="314" y2="213"/>
+      <line x1="198" y1="238" x2="314" y2="163"/>
+      <line x1="198" y1="238" x2="314" y2="213"/>
+    </g>
+    <g stroke="#ffffff" stroke-width="3">
+      <circle cx="198" cy="138" r="13" fill="#C9B6FF"/>
+      <circle cx="198" cy="188" r="13" fill="#C9B6FF"/>
+      <circle cx="198" cy="238" r="13" fill="#C9B6FF"/>
+      <circle cx="314" cy="163" r="13" fill="#19E0E6"/>
+      <circle cx="314" cy="213" r="13" fill="#19E0E6"/>
+    </g>
+  </g>
+
+  <!-- dark BAR under the label (slightly rounded) -->
+  <rect x="118" y="360" width="276" height="92" rx="26" fill="url(#dark)" stroke="#14141E" stroke-width="2"/>
+  <text x="256" y="421" text-anchor="middle" font-family="Fira Sans" font-size="50" letter-spacing="0.5">
+    <tspan font-weight="800" fill="#19E0E6">AI</tspan><tspan font-weight="500" fill="#EDEDF5">Craft</tspan>
+  </text>
+</svg>

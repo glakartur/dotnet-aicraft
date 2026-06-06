@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400" role="img" aria-label="dotnet AI Craft">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#512BD4"/>
+      <stop offset="1" stop-color="#11C5D4"/>
+    </linearGradient>
+    <linearGradient id="brandH" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#512BD4"/>
+      <stop offset="1" stop-color="#11C5D4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon: hexagon (.NET) enclosing a neural network (AI) -->
+  <g fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <!-- hexagon frame -->
+    <polygon points="295,150 247.5,232.27 152.5,232.27 105,150 152.5,67.73 247.5,67.73"
+             stroke="url(#brand)" stroke-width="10"/>
+
+    <!-- neural edges (fully connected: 3 inputs -> 2 outputs) -->
+    <g stroke="url(#brandH)" stroke-width="3" opacity="0.85">
+      <line x1="160" y1="112" x2="240" y2="131"/>
+      <line x1="160" y1="112" x2="240" y2="169"/>
+      <line x1="160" y1="150" x2="240" y2="131"/>
+      <line x1="160" y1="150" x2="240" y2="169"/>
+      <line x1="160" y1="188" x2="240" y2="131"/>
+      <line x1="160" y1="188" x2="240" y2="169"/>
+    </g>
+  </g>
+
+  <!-- neural nodes -->
+  <g stroke="#ffffff" stroke-width="2.5">
+    <circle cx="160" cy="112" r="8.5" fill="#512BD4"/>
+    <circle cx="160" cy="150" r="8.5" fill="#512BD4"/>
+    <circle cx="160" cy="188" r="8.5" fill="#512BD4"/>
+    <circle cx="240" cy="131" r="8.5" fill="#11C5D4"/>
+    <circle cx="240" cy="169" r="8.5" fill="#11C5D4"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="200" y="320" text-anchor="middle" font-family="Fira Sans" font-size="44" letter-spacing="0.5">
+    <tspan font-weight="300" fill="#2B2B3A">dotnet</tspan><tspan dx="20" font-weight="800" fill="url(#brandH)">AI Craft</tspan>
+  </text>
+</svg>
