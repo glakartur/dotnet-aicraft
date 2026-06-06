@@ -37,6 +37,11 @@ public sealed class DaemonServer : IAsyncDisposable
     private CancellationTokenSource? _metadataReloadDebounceCts;
     private readonly SemaphoreSlim _solutionLock = new(1, 1);
     private readonly SemaphoreSlim _metadataReloadSingleFlight = new(1, 1);
+    // Tracks the in-flight (or last) accept-then-load task so reload can run the
+    // load in the background instead of blocking the request, and so shutdown can
+    // observe it. Guarded by _backgroundLoadLock.
+    private readonly object _backgroundLoadLock = new();
+    private Task _backgroundLoadTask = Task.CompletedTask;
     private readonly object _idleLock = new();
     private DaemonLifecycleState _lifecycleState = DaemonLifecycleState.Running;
     private DaemonIdleTimeoutSetting _idleTimeout = DaemonIdleTimeoutSetting.Default;
@@ -144,14 +149,11 @@ public sealed class DaemonServer : IAsyncDisposable
 
         // Accept-then-load: serve connections (and answer `status`) while the
         // solution loads on a background task, instead of blocking the accept
-        // loop on the initial load. Set Loading synchronously here to close the
-        // window before the background task acquires _solutionLock, so an early
-        // `status` poll never observes the initial Unloaded.
-        _loadState = DaemonLoadState.Loading;
+        // loop on the initial load. StartBackgroundLoad sets Loading synchronously
+        // before the task acquires _solutionLock, so an early `status` poll never
+        // observes the initial Unloaded.
         Log($"Starting background solution load: {_solutionPath}");
-        // TryLoadSolutionAsync returns bool and swallows its own exceptions, so
-        // it is safe to run unobserved until shutdown awaits it below.
-        var loadTask = TryLoadSolutionAsync();
+        StartBackgroundLoad();
 
         Log($"Daemon accepting connections. Socket: {socketPath}");
 
@@ -171,7 +173,7 @@ public sealed class DaemonServer : IAsyncDisposable
         Log("Daemon shutting down.");
         // Observe the background load before deleting the socket so teardown
         // never races an in-flight load or leaves an unobserved task.
-        await loadTask;
+        await GetBackgroundLoadTask();
         if (File.Exists(socketPath)) File.Delete(socketPath);
     }
 
@@ -257,7 +259,7 @@ public sealed class DaemonServer : IAsyncDisposable
                 "diagnostics" => await HandleDiagnosticsAsync(req, ct),
                 "unused"   => await HandleUnusedAsync(req, ct),
                 "status"   => HandleStatus(),
-                "reload"   => await HandleReloadAsync(ct),
+                "reload"   => HandleReload(),
                 "setIdleTimeout" => HandleSetIdleTimeout(req),
                 "shutdown" => HandleShutdown(),
                 _ => throw new InvalidOperationException($"Unknown command: {req.Command}")
@@ -559,18 +561,61 @@ public sealed class DaemonServer : IAsyncDisposable
             LastLoadErrorMessage: lastLoadError?.Message);
     }
 
-    private async Task<object> HandleReloadAsync(CancellationToken ct)
+    private object HandleReload()
     {
-        var reloaded = await TryLoadSolutionAsync(ct);
+        // Hand the reload off to a background task and acknowledge immediately,
+        // mirroring the cold-start accept-then-load path. Blocking this single
+        // request on a full MSBuild reload would exceed the client's fixed
+        // response timeout for large solutions and trip DAEMON_RESPONSE_TIMEOUT.
+        // StartBackgroundLoad flips to Loading synchronously before the ack is
+        // built, so the client's post-reload `status` readiness poll never
+        // observes the prior Loaded state and returns early. The client waits for
+        // completion by polling `status`, not by holding this request open.
+        StartBackgroundLoad();
         return new
         {
-            reloaded,
+            reloaded = true,
             loadState = _loadState.ToString().ToLowerInvariant(),
             loadedAt = _loadedAt,
             lastLoadAttemptAt = _lastLoadAttemptAt,
             lastLoadErrorCode = _lastLoadError?.Code,
             lastLoadErrorMessage = _lastLoadError?.Message
         };
+    }
+
+    // Starts an accept-then-load on a background task. Chains after any in-flight
+    // load rather than coalescing into it: a reload must run a load that starts
+    // AFTER the request so it observes the latest on-disk state, instead of
+    // silently piggy-backing on an older load that may predate the user's edit.
+    // _solutionLock still serializes the actual load against file-change and
+    // metadata-watcher reloads; awaiting the chain tail observes every queued load.
+    private void StartBackgroundLoad()
+    {
+        lock (_backgroundLoadLock)
+        {
+            // Set Loading synchronously so an immediate `status` poll never
+            // observes the pre-reload state before the task acquires _solutionLock.
+            _loadState = DaemonLoadState.Loading;
+            _backgroundLoadTask = RunLoadAfterAsync(_backgroundLoadTask);
+        }
+    }
+
+    private async Task RunLoadAfterAsync(Task prior)
+    {
+        // Offload past the lock so the load never executes inline on the request
+        // thread (TryLoadSolutionAsync runs synchronously until its first
+        // genuinely-async await, and a fast-failing load may never yield).
+        await Task.Yield();
+        // The prior load swallows its own exceptions; guard anyway so a faulted
+        // prior never breaks the chain.
+        try { await prior.ConfigureAwait(false); } catch { /* prior owns its errors */ }
+        await TryLoadSolutionAsync().ConfigureAwait(false);
+    }
+
+    private Task GetBackgroundLoadTask()
+    {
+        lock (_backgroundLoadLock)
+            return _backgroundLoadTask;
     }
 
     private object HandleShutdown()
@@ -734,15 +779,17 @@ public sealed class DaemonServer : IAsyncDisposable
 
     private DaemonIdleTimeoutSetting GetEffectiveIdleTimeoutSetting(DaemonIdleTimeoutSetting configured)
     {
-        if (_hasExplicitIdleTimeoutOverride)
-            return configured;
-
-        // A background load is a genuine active operation. Exempt Loading from
-        // idle reaping for the full duration of the load rather than borrowing
-        // the fixed unloaded window, since a load slow enough to trip the 90s
-        // startup notice could exceed that window and be reaped mid-load.
+        // A background load is a genuine active operation — never idle-reap
+        // mid-load, even under an explicit idle-timeout override. This is checked
+        // before the override branch because reload now runs the load in the
+        // background: the triggering request returns immediately and no longer
+        // holds the idle watcher off for the load's duration, so a short
+        // `reload --idle-timeout` would otherwise reap the daemon mid-load.
         if (_loadState == DaemonLoadState.Loading)
             return new DaemonIdleTimeoutSetting(false, Timeout.InfiniteTimeSpan, "off");
+
+        if (_hasExplicitIdleTimeoutOverride)
+            return configured;
 
         if (_loadState == DaemonLoadState.Unloaded)
             return new DaemonIdleTimeoutSetting(true, TimeSpan.FromMinutes(UnloadedIdleTimeoutMinutes), $"{UnloadedIdleTimeoutMinutes}m");
@@ -2142,6 +2189,9 @@ public sealed class DaemonServer : IAsyncDisposable
         }
         if (_startupLock is not null)
             await _startupLock.DisposeAsync();
+        // Observe any in-flight background load so disposal never races it or
+        // leaves an unobserved task (TryLoadSolutionAsync swallows its own errors).
+        try { await GetBackgroundLoadTask(); } catch { /* best-effort */ }
         _cts.Dispose();
         _workspace?.Dispose();
         _solutionLock.Dispose();

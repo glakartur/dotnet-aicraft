@@ -115,24 +115,45 @@ internal static class UseCase
         if (client is null)
             return (null, null);
 
-        await using (client)
+        if (!DotnetAICraft.Commands.Shared.CommandHelpers.TryParseIdleTimeoutMinutes(idleTimeout, out var idleTimeoutMinutes, out var parseError))
         {
-            DaemonResponse res;
-            try
-            {
-                if (!DotnetAICraft.Commands.Shared.CommandHelpers.TryParseIdleTimeoutMinutes(idleTimeout, out var idleTimeoutMinutes, out var parseError))
-                    return (null, parseError);
+            await client.DisposeAsync();
+            return (null, parseError);
+        }
 
-                res = await client.SendAsync("reload", idleTimeoutMinutes: idleTimeoutMinutes);
-            }
-            catch (DaemonClientValidationException ex)
+        // The daemon now flips to Loading and acknowledges the reload immediately
+        // rather than holding this request open for the whole MSBuild reload — a
+        // load slower than the client's fixed response timeout previously tripped
+        // DAEMON_RESPONSE_TIMEOUT.
+        try
+        {
+            await using (client)
             {
-                return (null, ex.Error);
+                var ack = await client.SendAsync("reload", idleTimeoutMinutes: idleTimeoutMinutes);
+                if (ack.Status != DaemonResponseStatus.Ok)
+                    return (null, ack.Error);
             }
+        }
+        catch (DaemonClientValidationException ex)
+        {
+            return (null, ex.Error);
+        }
 
-            return res.Status == DaemonResponseStatus.Ok
-                ? (res.Result, null)
-                : (null, res.Error);
+        // Wait for the background reload to finish by polling `status` (with the
+        // same first-run progress notices), then report the final status. Each
+        // poll is a short-lived request, so a long reload no longer blocks on a
+        // single response.
+        try
+        {
+            await using var ready = await DaemonClient.ConnectOrStartAsync(solutionPath);
+            var status = await ready.SendAsync("status");
+            return status.Status == DaemonResponseStatus.Ok
+                ? (status.Result, null)
+                : (null, status.Error);
+        }
+        catch (DaemonClientValidationException ex)
+        {
+            return (null, ex.Error);
         }
     }
 }
