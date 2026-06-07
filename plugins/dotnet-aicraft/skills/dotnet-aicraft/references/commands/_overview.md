@@ -23,6 +23,11 @@ solution root is surfaced once per response:
 - `--format text` — a `SolutionRoot: <abs path>` header line near the top.
 - `--format json` — a top-level `solutionRoot` field on the envelope.
 
+The single-symbol/container inspection verbs — `describe`, `outline`, `source` — round out
+`definition`: `describe` answers *what is this*, `outline` *what's inside this container*, `source`
+*show me just this symbol's text*. See [`describe.md`](describe.md), [`outline.md`](outline.md),
+[`source.md`](source.md).
+
 For commands that return lists (`refs`, `impls`, `symbols`,
 `diagnostics`, `unused`), the JSON envelope is:
 

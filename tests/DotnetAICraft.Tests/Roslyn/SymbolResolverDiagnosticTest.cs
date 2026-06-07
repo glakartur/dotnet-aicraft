@@ -172,6 +172,22 @@ public class SymbolResolverFromFullNameTests
         Assert.Equal("Demo.Services.MyService.MyService(int)", match.ToDisplayString());
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task FromLocationAsync_ColumnBelowOne_ThrowsArgumentExceptionNotRawRangeError(int col)
+    {
+        var solution = BuildSolution("namespace Demo; public class Foo {}");
+
+        var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => SymbolResolver.FromLocationAsync(solution, "/virtual/Test.cs", line: 1, col: col));
+
+        // ArgumentOutOfRangeException derives from ArgumentException, so the daemon maps it to
+        // INVALID_PARAMS rather than INTERNAL_ERROR.
+        Assert.IsAssignableFrom<ArgumentException>(ex);
+        Assert.Equal("col", ex.ParamName);
+    }
+
     [Fact]
     public async Task FromFullNameAsync_UnknownSymbol_ThrowsArgumentException()
     {

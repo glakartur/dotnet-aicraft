@@ -7,11 +7,21 @@ Need to find something?
 ├── Know the symbol name? → refs or callers with --symbol
 ├── Reading a file and have line/col? → refs or callers with --file --line --col
 ├── Partial name only? → symbols --pattern "Partial*"
+├── Where is it declared? → definition --symbol (or --file --line --col)
 └── Looking for interface implementors? → impls --symbol "Namespace.IInterface"
+
+Need to understand something (instead of reading the whole file)?
+├── What IS this symbol? signature, types, modifiers, attrs, doc, overloads → describe
+├── What's declared inside this type/file? (members, no bodies) → outline
+└── Show me just this symbol's source text → source
 
 Need to change something?
 └── Rename → rename --dry-run first, then rename to apply
 ```
+
+The inspection trio (`describe` / `outline` / `source`) answers from the in-memory daemon and works on
+metadata symbols (BCL/NuGet) that have no file on disk — reach for them instead of `Read`-ing a whole
+file to learn a signature, a type's shape, or one member's body.
 
 ---
 
@@ -79,7 +89,38 @@ dotnet aicraft impls --solution App.sln \
 # Trace how a key method is used
 dotnet aicraft callers --solution App.sln \
   --symbol "MyApp.Core.IRepository.GetById"
+
+# See a type's shape without opening its file (members + signatures + line numbers)
+dotnet aicraft outline --solution App.sln --symbol "MyApp.Services.OrderService"
+
+# Or outline every top-level type a file declares
+dotnet aicraft outline --solution App.sln --file src/Services/OrderService.cs
 ```
+
+---
+
+## Pattern 3b: Understand a Symbol Without Reading Its File
+
+When you need to know *what a symbol is* or *what's in it* — and reading the whole file (or, for a
+BCL/NuGet type, guessing from memory) would be wasteful:
+
+```bash
+# The semantic card: signature, return/param types, modifiers, attributes, cleaned XML-doc,
+# and sibling overloads. Works on metadata symbols too (null file/line, names the assembly).
+dotnet aicraft describe --solution App.sln --symbol "MyApp.Services.OrderService.Process"
+
+# The members a type declares (declared-only; add --include-inherited for the base chain,
+# --public-only for the consumable/extensible surface).
+dotnet aicraft outline --solution App.sln --symbol "MyApp.Services.OrderService" --public-only
+
+# Just this symbol's verbatim declaration text, with its file + line span. partial types /
+# overloads return one block per part; metadata symbols degrade to a non-error "no source" note.
+dotnet aicraft source --solution App.sln --symbol "MyApp.Services.OrderService.Process"
+```
+
+`describe`/`source` resolve overloads to one result group each. On an ambiguous overload, pass the
+parameterized form (`...Process(MyApp.OrderDto)`). `outline` takes `--symbol <type>` **or** a bare
+`--file` and rejects `--line`/`--col`.
 
 ---
 
@@ -94,6 +135,11 @@ dotnet aicraft refs --solution App.sln \
 
 # Follow the call hierarchy upward
 dotnet aicraft callers --solution App.sln \
+  --file src/Services/OrderService.cs --line 42 --col 18
+
+# Or get the full semantic card for whatever symbol is under the cursor — including
+# BCL/NuGet symbols, which resolve from metadata at that position
+dotnet aicraft describe --solution App.sln \
   --file src/Services/OrderService.cs --line 42 --col 18
 ```
 
@@ -238,3 +284,22 @@ configured analyzers see.
 - `fullName` — fully-qualified name to use in subsequent commands
 - `kind` — `method`, `class`, `interface`, `property`, `field`, `namespace`, etc.
 - `file`, `line`, `col` — declaration location (file is relative to solution root)
+
+### `describe`
+- grouped per matched symbol (`{ symbol, kind, result }`); `result` is the card
+- `signature` — accessibility + modifiers + return type + name + params (type header for a type)
+- `returnType`, `parameters[]` (`{ name, type, defaultValue? }`), `modifiers[]`, `attributes[]` (short names)
+- `constantValue` — for enum members / `const` fields
+- `documentation` — cleaned XML-doc; `siblings[]` — other overload signatures (excludes the target)
+- `file`/`line`/`col` are **null** for metadata symbols, which instead carry `assembly`
+
+### `outline`
+- grouped per container; `result` is `{ container, kind, publicOnly, includeInherited, declared[], inherited[] }`
+- `declared[]` — `{ file, line, col, declaringType, signature, tag? }` (flat located lines, source order)
+- `inherited[]` — `{ declaringType, assembly?, members[] }` (only with `--include-inherited`; `assembly` set for metadata bases)
+- a member's `tag` is `"hidden by new"` when it is shadowed by a declared `new` member
+
+### `source`
+- grouped per matched symbol; `result` is `{ fullName, kind, hasSource, blocks[], assembly?, note? }`
+- `blocks[]` — `{ file, startLine, endLine, text }`, one per `partial`/overload part; the span bounds `text`
+- `hasSource: false` + `note` (+ `assembly`) for metadata-only or compiler-generated symbols (non-error)

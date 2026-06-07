@@ -258,6 +258,9 @@ public sealed class DaemonServer : IAsyncDisposable
                 "symbols"  => await HandleSymbolsAsync(req, ct),
                 "diagnostics" => await HandleDiagnosticsAsync(req, ct),
                 "unused"   => await HandleUnusedAsync(req, ct),
+                "describe" => await HandleDescribeAsync(req, ct),
+                "source"   => await HandleSourceAsync(req, ct),
+                "outline"  => await HandleOutlineAsync(req, ct),
                 "status"   => HandleStatus(),
                 "reload"   => HandleReload(),
                 "setIdleTimeout" => HandleSetIdleTimeout(req),
@@ -408,6 +411,127 @@ public sealed class DaemonServer : IAsyncDisposable
                     s.GetKindName(),
                     DotnetAICraft.Commands.Definition.OutputMapping.Map(s, solutionDir)))
                 .ToList();
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
+    }
+
+    private async Task<object> HandleDescribeAsync(DaemonRequest req, CancellationToken ct)
+    {
+        var p = GetParams(req);
+        var solution = GetSolution();
+
+        var symbol = GetOptionalString(p, "symbol");
+        var file = GetOptionalString(p, "file");
+        var line = GetOptionalInt(p, "line");
+        var col = GetOptionalInt(p, "col");
+
+        try
+        {
+            // Validation runs inside the UseCase; no need to pre-call it here.
+            return await DotnetAICraft.Commands.Describe.UseCase.ResolveAsync(solution, symbol, file, line, col, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
+    }
+
+    private async Task<object> HandleOutlineAsync(DaemonRequest req, CancellationToken ct)
+    {
+        var p = GetParams(req);
+        var solution = GetSolution();
+
+        var symbol = GetOptionalString(p, "symbol");
+        var file = GetOptionalString(p, "file");
+        var publicOnly = GetOptionalBool(p, "publicOnly") ?? false;
+        var includeInherited = GetOptionalBool(p, "includeInherited") ?? false;
+
+        try
+        {
+            return await DotnetAICraft.Commands.Outline.UseCase.ResolveAsync(
+                solution, symbol, file, publicOnly, includeInherited, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
+    }
+
+    /// <summary>Testable outline resolution — returns one match group per resolved container.</summary>
+    public static async Task<IReadOnlyList<Models.SymbolMatchGroup>> ResolveOutlineAsync(
+        Solution solution,
+        string? symbol,
+        string? file,
+        bool publicOnly,
+        bool includeInherited,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await DotnetAICraft.Commands.Outline.UseCase.ResolveAsync(
+                solution, symbol, file, publicOnly, includeInherited, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
+    }
+
+    private async Task<object> HandleSourceAsync(DaemonRequest req, CancellationToken ct)
+    {
+        var p = GetParams(req);
+        var solution = GetSolution();
+
+        var symbol = GetOptionalString(p, "symbol");
+        var file = GetOptionalString(p, "file");
+        var line = GetOptionalInt(p, "line");
+        var col = GetOptionalInt(p, "col");
+
+        try
+        {
+            // Validation runs inside the UseCase; no need to pre-call it here.
+            return await DotnetAICraft.Commands.Source.UseCase.ResolveAsync(solution, symbol, file, line, col, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
+    }
+
+    /// <summary>Testable source resolution — returns one match group per resolved symbol.</summary>
+    public static async Task<IReadOnlyList<Models.SymbolMatchGroup>> ResolveSourceAsync(
+        Solution solution,
+        string? symbol,
+        string? file,
+        int? line,
+        int? col,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await DotnetAICraft.Commands.Source.UseCase.ResolveAsync(solution, symbol, file, line, col, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new DaemonValidationException(new ErrorInfo("INVALID_PARAMS", ex.Message));
+        }
+    }
+
+    /// <summary>Testable describe resolution — returns one match group per resolved symbol.</summary>
+    public static async Task<IReadOnlyList<Models.SymbolMatchGroup>> ResolveDescribeAsync(
+        Solution solution,
+        string? symbol,
+        string? file,
+        int? line,
+        int? col,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return await DotnetAICraft.Commands.Describe.UseCase.ResolveAsync(solution, symbol, file, line, col, ct);
         }
         catch (ArgumentException ex)
         {

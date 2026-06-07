@@ -82,6 +82,9 @@ root.Add(CallersCommand.Build(solutionOption, projectOption, idleTimeoutOption, 
 root.Add(DiagnosticsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(SymbolsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(UnusedCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(DescribeCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(SourceCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(OutlineCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 
 return await root.Parse(args).InvokeAsync();
 

@@ -216,6 +216,116 @@ public static class TextOutput
             Console.Out.WriteLine($"{def.Kind} {def.FullName}");
     }
 
+    // ── Outline ────────────────────────────────────────────────────────────────
+    public static void WriteOutlineEmpty()
+        => WriteSectionLabel("outline", "no results");
+
+    public static void WriteOutline(OutlineResult result, string solution)
+    {
+        _ = solution;
+
+        var filters = new List<string>();
+        if (result.PublicOnly) filters.Add("publicOnly");
+        if (result.IncludeInherited) filters.Add("includeInherited");
+        var annotation = filters.Count == 0
+            ? (result.Declared.Count == 0 ? "no declared members" : null)
+            : string.Join(", ", filters) + (result.Declared.Count == 0 ? ", no declared members" : "");
+
+        WriteSectionLabel("outline", annotation);
+
+        var containerName = result.Container;
+        foreach (var member in result.Declared)
+        {
+            // R9: each declared member is a flat located line; nested members carry their declaring type.
+            var origin = string.Equals(member.DeclaringType, containerName, StringComparison.Ordinal)
+                ? string.Empty
+                : $"  [{member.DeclaringType}]";
+            var tag = member.Tag is null ? string.Empty : $"  ({member.Tag})";
+            Console.Out.WriteLine($"{member.File}:{member.Line}:{member.Col}: {member.Signature}{origin}{tag}");
+        }
+
+        foreach (var group in result.Inherited)
+        {
+            var assembly = group.Assembly is null ? string.Empty : $" [{group.Assembly}]";
+            Console.Out.WriteLine($"inherited from {group.DeclaringType}{assembly}:");
+            foreach (var member in group.Members)
+            {
+                var tag = member.Tag is null ? string.Empty : $"  ({member.Tag})";
+                Console.Out.WriteLine($"  {member.Signature}{tag}");
+            }
+        }
+    }
+
+    // ── Source ─────────────────────────────────────────────────────────────────
+    public static void WriteSource(SourceResult result, string solution)
+    {
+        _ = solution;
+        if (!result.HasSource)
+        {
+            WriteSectionLabel("source", result.Note ?? "no source available");
+            return;
+        }
+
+        WriteSectionLabel("source", result.Blocks.Count > 1 ? $"{result.Blocks.Count} parts" : null);
+        for (var i = 0; i < result.Blocks.Count; i++)
+        {
+            var block = result.Blocks[i];
+            Console.Out.WriteLine($"{block.File}:{block.StartLine}-{block.EndLine}:");
+            Console.Out.WriteLine(block.Text.Trim('\r', '\n'));
+            if (i < result.Blocks.Count - 1)
+                Console.Out.WriteLine();
+        }
+    }
+
+    // ── Describe ───────────────────────────────────────────────────────────────
+    public static void WriteDescribe(DescribeCard card, string solution)
+    {
+        _ = solution;
+        WriteSectionLabel("describe", null);
+        Console.Out.WriteLine(card.Signature);
+
+        if (card.File is not null && card.Line is not null && card.Col is not null)
+            Console.Out.WriteLine($"  location: {card.File}:{card.Line}:{card.Col}");
+        else if (card.Assembly is not null)
+            Console.Out.WriteLine($"  location: <metadata> {card.Assembly}");
+
+        if (card.ReturnType is not null)
+            Console.Out.WriteLine($"  returns: {card.ReturnType}");
+
+        if (card.Parameters is { Count: > 0 })
+        {
+            Console.Out.WriteLine("  params:");
+            foreach (var p in card.Parameters)
+            {
+                var def = p.DefaultValue is null ? string.Empty : $" = {p.DefaultValue}";
+                Console.Out.WriteLine($"    {p.Type} {p.Name}{def}");
+            }
+        }
+
+        if (card.ConstantValue is not null)
+            Console.Out.WriteLine($"  constant: {card.ConstantValue}");
+
+        if (card.Modifiers is { Count: > 0 })
+            Console.Out.WriteLine($"  modifiers: {string.Join(" ", card.Modifiers)}");
+
+        if (card.Attributes is { Count: > 0 })
+            Console.Out.WriteLine($"  attributes: {string.Join(", ", card.Attributes)}");
+
+        if (!string.IsNullOrEmpty(card.Documentation))
+        {
+            Console.Out.WriteLine("  doc:");
+            foreach (var docLine in card.Documentation.Split('\n'))
+                Console.Out.WriteLine($"    {docLine}");
+        }
+
+        if (card.Siblings is { Count: > 0 })
+        {
+            Console.Out.WriteLine("  siblings:");
+            foreach (var sibling in card.Siblings)
+                Console.Out.WriteLine($"    {sibling}");
+        }
+    }
+
     // ── Diagnostics ──────────────────────────────────────────────────────────
     public static void WriteDiagnostics(IReadOnlyList<DiagnosticResult> items, string solution)
     {

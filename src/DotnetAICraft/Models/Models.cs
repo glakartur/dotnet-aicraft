@@ -85,6 +85,82 @@ public record DefinitionResult(
     string? ContainingType,
     string? ContainingNamespace);
 
+public record OutlineMember(
+    string File,
+    int Line,
+    int Col,
+    string DeclaringType,
+    string Signature,
+    string? Tag);
+
+public record OutlineInheritedMember(
+    string Signature,
+    string? Tag);
+
+public record OutlineInheritedGroup(
+    string DeclaringType,
+    string? Assembly,
+    IReadOnlyList<OutlineInheritedMember> Members);
+
+/// <summary>
+/// The members a container declares, as flat located lines, plus (with <c>--include-inherited</c>)
+/// base-class-chain members grouped under their declaring type. See plan decisions D9/D10/R9.
+/// </summary>
+public record OutlineResult(
+    string Container,
+    string Kind,
+    bool PublicOnly,
+    bool IncludeInherited,
+    IReadOnlyList<OutlineMember> Declared,
+    IReadOnlyList<OutlineInheritedGroup> Inherited);
+
+public record SourceBlock(
+    string File,
+    int StartLine,
+    int EndLine,
+    string Text);
+
+/// <summary>
+/// Verbatim declaration text for a symbol. A <c>partial</c> type/method or set of overload parts yields
+/// one <see cref="SourceBlock"/> per declaring syntax. Metadata-only or implicitly-generated symbols
+/// carry <c>HasSource = false</c>, an empty block list, the declaring assembly, and a <c>Note</c>.
+/// </summary>
+public record SourceResult(
+    string FullName,
+    string Kind,
+    bool HasSource,
+    IReadOnlyList<SourceBlock> Blocks,
+    string? Assembly,
+    string? Note);
+
+public record DescribeParameter(
+    string Name,
+    string Type,
+    string? DefaultValue);
+
+/// <summary>
+/// Semantic card for a single symbol: <c>definition</c>'s identity/location plus signature,
+/// return/parameter types, modifiers, attributes, cleaned XML-doc, and sibling overloads.
+/// Metadata symbols carry null file/line/col and the declaring assembly name.
+/// </summary>
+public record DescribeCard(
+    string FullName,
+    string Kind,
+    string? File,
+    int? Line,
+    int? Col,
+    string? ContainingType,
+    string? ContainingNamespace,
+    string Signature,
+    string? ReturnType,
+    IReadOnlyList<DescribeParameter>? Parameters,
+    IReadOnlyList<string>? Modifiers,
+    IReadOnlyList<string>? Attributes,
+    string? ConstantValue,
+    string? Documentation,
+    IReadOnlyList<string>? Siblings,
+    string? Assembly);
+
 public record DaemonStatus(
     bool Running,
     string SolutionPath,

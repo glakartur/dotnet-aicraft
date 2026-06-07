@@ -216,6 +216,29 @@ dotnet aicraft definition --solution App.sln --symbol "MyApp.Services.OrderServi
 }
 ```
 
+### Inspect a symbol or container — `describe`, `outline`, `source`
+
+```bash
+# What IS this? signature, types, modifiers, attributes, XML-doc, sibling overloads.
+# Works on metadata symbols (BCL/NuGet) too.
+dotnet aicraft describe --solution App.sln --symbol "MyApp.Services.OrderService.Process"
+
+# What does this type (or file) DECLARE? Flat located member lines, no bodies.
+dotnet aicraft outline --solution App.sln --symbol "MyApp.Services.OrderService"
+dotnet aicraft outline --solution App.sln --file src/Services/OrderService.cs
+dotnet aicraft outline --solution App.sln --symbol "MyApp.Services.OrderService" --include-inherited --public-only
+
+# Show me just THIS symbol's verbatim source, with its file + line span.
+dotnet aicraft source --solution App.sln --symbol "MyApp.Services.OrderService.Process"
+```
+
+`describe`/`source` resolve overloads to one result group each. `outline` takes `--symbol <type>`
+**or** a bare `--file` (it rejects `--line`/`--col`). `--public-only` keeps the consumable/extensible
+surface (public, internal, protected, protected internal). See
+[`references/commands/describe.md`](plugins/dotnet-aicraft/skills/dotnet-aicraft/references/commands/describe.md),
+[`outline.md`](plugins/dotnet-aicraft/skills/dotnet-aicraft/references/commands/outline.md),
+[`source.md`](plugins/dotnet-aicraft/skills/dotnet-aicraft/references/commands/source.md).
+
 ### Rename a symbol (safe, cross-solution)
 
 ```bash

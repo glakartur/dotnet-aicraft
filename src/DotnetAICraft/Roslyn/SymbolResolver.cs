@@ -37,6 +37,10 @@ public static class SymbolResolver
             throw new ArgumentOutOfRangeException(nameof(line),
                 $"Line {line} is out of range (file has {sourceText.Lines.Count} lines).");
 
+        if (colIndex < 0)
+            throw new ArgumentOutOfRangeException(nameof(col),
+                $"Column {col} is out of range (must be >= 1).");
+
         var textLine   = sourceText.Lines[lineIndex];
         var position   = textLine.Start + Math.Min(colIndex, textLine.End - textLine.Start);
 
@@ -153,6 +157,141 @@ public static class SymbolResolver
         => symbol is not null
             ? await FromFullNameAllAsync(solution, symbol, ct)
             : [await FromLocationAsync(solution, file!, line!.Value, col!.Value, ct)];
+
+    /// <summary>
+    /// What a <c>--symbol</c> fully-qualified name addresses for container-oriented commands
+    /// (<c>outline</c>/<c>describe</c>): one or more named types, a member (method/property/field/event),
+    /// or a namespace. See plan decision D8.
+    /// </summary>
+    public enum ContainerTargetKind { Types, Member, Namespace }
+
+    /// <summary>Result of <see cref="ResolveContainerTargetAsync"/>.</summary>
+    public sealed record ContainerTarget(
+        ContainerTargetKind Kind,
+        IReadOnlyList<INamedTypeSymbol> Types,
+        IReadOnlyList<ISymbol> Members);
+
+    /// <summary>
+    /// Returns the top-level type/enum/delegate declarations in a source file as
+    /// <see cref="INamedTypeSymbol"/>s in source order — the containers <c>outline --file</c> enumerates
+    /// (see D7). A file with no declarations (only <c>using</c>s) returns an empty list, not an error.
+    /// A top-level-statements file resolves the synthesized entry-point type.
+    /// </summary>
+    public static async Task<IReadOnlyList<INamedTypeSymbol>> ContainersInFileAsync(
+        Solution solution,
+        string filePath,
+        CancellationToken ct = default)
+    {
+        var normalizedPath = Path.GetFullPath(filePath);
+        var docId = solution.GetDocumentIdsWithFilePath(filePath).FirstOrDefault()
+            ?? solution.GetDocumentIdsWithFilePath(normalizedPath).FirstOrDefault()
+            ?? throw new ArgumentException(
+                $"File not found in solution: {filePath}\n" +
+                "Tip: make sure the path is absolute or relative to the solution directory.",
+                nameof(filePath));
+
+        var document = solution.GetDocument(docId)!;
+        var root = await document.GetSyntaxRootAsync(ct);
+        var model = await document.GetSemanticModelAsync(ct);
+        if (root is null || model is null)
+            return [];
+
+        var results = new List<INamedTypeSymbol>();
+        var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+
+        foreach (var node in root.DescendantNodes())
+        {
+            // Top-level only — nested types are surfaced by the caller's recursive member walk.
+            if (node is not (BaseTypeDeclarationSyntax or DelegateDeclarationSyntax))
+                continue;
+            if (node.Parent is not (BaseNamespaceDeclarationSyntax or CompilationUnitSyntax))
+                continue;
+
+            if (model.GetDeclaredSymbol(node, ct) is INamedTypeSymbol type && seen.Add(type))
+                results.Add(type);
+        }
+
+        // Top-level statements declare no type syntax; resolve the synthesized entry-point container.
+        if (root is CompilationUnitSyntax cu && cu.Members.OfType<GlobalStatementSyntax>().Any())
+        {
+            var entry = model.Compilation.GetEntryPoint(ct);
+            if (entry?.ContainingType is { } program && seen.Add(program))
+                results.Add(program);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Classifies what a <c>--symbol</c> fully-qualified name addresses. When a name matches both a type
+    /// and a same-named namespace, the type is preferred (D8). Throws <see cref="ArgumentException"/>
+    /// when nothing matches.
+    /// </summary>
+    public static async Task<ContainerTarget> ResolveContainerTargetAsync(
+        Solution solution,
+        string fullName,
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<ISymbol> matches;
+        try
+        {
+            matches = await FromFullNameAllAsync(solution, fullName, ct);
+        }
+        catch (ArgumentException)
+        {
+            matches = [];
+        }
+
+        var types = matches.OfType<INamedTypeSymbol>().ToList();
+        if (types.Count > 0)
+            return new ContainerTarget(ContainerTargetKind.Types, types, []);
+
+        var members = matches.Where(IsAddressableMember).ToList();
+        if (members.Count > 0)
+            return new ContainerTarget(ContainerTargetKind.Member, [], members);
+
+        var ns = matches.OfType<INamespaceSymbol>().FirstOrDefault()
+                 ?? await FindNamespaceAsync(solution, fullName, ct);
+        if (ns is not null)
+            return new ContainerTarget(ContainerTargetKind.Namespace, [], [ns]);
+
+        throw new ArgumentException(
+            $"Symbol '{fullName}' not found in any project in the solution.\n" +
+            "Tip: use the fully qualified type name, e.g. 'MyApp.Services.OrderService'.",
+            nameof(fullName));
+    }
+
+    /// <summary>Walks the global namespace by dotted segments to find a namespace by full name.</summary>
+    public static async Task<INamespaceSymbol?> FindNamespaceAsync(
+        Solution solution,
+        string fullName,
+        CancellationToken ct = default)
+    {
+        var segments = fullName.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+            return null;
+
+        foreach (var project in solution.Projects)
+        {
+            var compilation = await project.GetCompilationAsync(ct);
+            if (compilation is null) continue;
+
+            INamespaceSymbol? current = compilation.GlobalNamespace;
+            foreach (var segment in segments)
+            {
+                current = current?.GetNamespaceMembers().FirstOrDefault(n => n.Name == segment);
+                if (current is null) break;
+            }
+
+            if (current is not null)
+                return current;
+        }
+
+        return null;
+    }
+
+    private static bool IsAddressableMember(ISymbol symbol)
+        => symbol.Kind is SymbolKind.Method or SymbolKind.Property or SymbolKind.Field or SymbolKind.Event;
 
     private static IEnumerable<ISymbol> ExpandWithConstructors(ISymbol symbol)
     {

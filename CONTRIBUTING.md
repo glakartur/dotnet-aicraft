@@ -21,8 +21,8 @@ dotnet test
 
 ## Internal architecture
 
-The command surface stays stable (`refs`, `definition`, `rename`, `impls`, `callers`,
-`symbols`, `diagnostics`, `unused`, `server`), while implementation follows a
+The command surface stays stable (`refs`, `definition`, `describe`, `outline`, `source`,
+`rename`, `impls`, `callers`, `symbols`, `diagnostics`, `unused`, `server`), while implementation follows a
 slice-first internal layout:
 
 ```

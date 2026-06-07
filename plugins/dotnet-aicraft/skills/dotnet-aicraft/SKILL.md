@@ -2,10 +2,11 @@
 name: dotnet-aicraft
 description: >
   Understand and safely change .NET/C#/F#/VB.NET code with compiler-grade certainty: find every
-  real reference, caller, implementation and override; jump to definitions; rename symbols
-  without breaking the build; surface dead code and compiler errors. The payoff is correct
-  answers and safe edits where text search quietly gives wrong ones — with far less time spent
-  hunting through files.
+  real reference, caller, implementation and override; jump to definitions; inspect a symbol's
+  signature/types/doc, outline what a type or file declares, or read just one symbol's source;
+  rename symbols without breaking the build; surface dead code and compiler errors. The payoff is
+  correct answers and safe edits where text search quietly gives wrong ones — and far less time
+  spent reading whole files (or guessing at BCL/NuGet types that have no source on disk).
 
   STOP before you locate, search, trace, or read .NET/C#/F#/VB.NET code by any text- or
   file-based means — whether a Bash command (`grep -r`, `find -name "*.cs"`, `cat`/`head` a
@@ -22,9 +23,11 @@ description: >
 
   Triggers: "find references/usages", "who calls X", "go to definition", "what implements X",
   "where is X defined", "find/locate the class/method/file", "how does this flow / where is it
-  set", "rename symbol", "is this dead code", "find unused", "compiler errors" — and any time a
+  set", "what is this symbol / what's its signature / show me its doc", "what members does this
+  type/file have / outline this type", "show me the source of X / read just this method", "rename
+  symbol", "is this dead code", "find unused", "compiler errors" — and any time a
   .sln/.csproj/.cs/.vb/.fs is in scope or mentioned.
-version: 0.9.0
+version: 0.10.0
 ---
 
 # dotnet-aicraft
@@ -38,6 +41,9 @@ daemon loads the solution once (~50ms/query), auto-starts on first use, idles ou
 |---|---|
 | Where is X used? / what calls it? | `refs` / `callers --symbol "FQN"` |
 | Where is X declared? (from a usage) | `definition --file --line --col` |
+| What *is* X? signature, types, modifiers, doc, overloads | `describe --symbol "FQN"` |
+| What does this type/file declare? (members, no bodies) | `outline --symbol "FQN"` / `outline --file` |
+| Show me just this symbol's source (one block, with span) | `source --symbol "FQN"` |
 | What implements this interface? | `impls --symbol "FQN"` |
 | Is this dead/unused? safe to delete? | `unused` + `refs` |
 | Rename a symbol safely | `rename --dry-run` then `rename` |
@@ -60,7 +66,8 @@ extension methods, generics, partial classes, XML-doc refs. Roslyn finds all of 
 
 - Exact flags + output schema for one command → `references/commands/<command>.md` — build the
   path directly, no need to list the directory (e.g. `references/commands/rename.md`, `callers.md`,
-  `unused.md`, `server.md` for daemon management — `reload` after projects are added/removed).
+  `describe.md`, `outline.md`, `source.md`, `unused.md`, `server.md` for daemon management —
+  `reload` after projects are added/removed).
 - Cross-cutting (global options, output/path conventions, error codes, symbol-name format)
   → `references/commands/_overview.md`
 - Workflow patterns + decision trees → `references/patterns.md`
