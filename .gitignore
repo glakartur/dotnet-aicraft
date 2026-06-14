@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# dotnet-aicraft skill eval run artifacts
+plugins/dotnet-aicraft/skills/dotnet-aicraft-workspace/

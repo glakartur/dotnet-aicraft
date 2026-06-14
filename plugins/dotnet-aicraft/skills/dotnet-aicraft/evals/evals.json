@@ -29,6 +29,20 @@
       "prompt": "Are there any dead or unused methods in the DotnetAICraft source project (src/DotnetAICraft) that I could safely delete? I want candidates with some confidence signal, not guesses.",
       "expected_output": "Uses dotnet aicraft unused (optionally narrowed to the project) and may confirm with refs. Does not attempt to infer dead code by reading files or grepping.",
       "files": []
+    },
+    {
+      "id": 4,
+      "name": "defection-tool-split",
+      "prompt": "Two things about the ambiguous-solution error path in this .NET solution. First, I want to retire the literal error-code token \"SOLUTION_AMBIGUOUS\" — show me every place that exact string appears in the source so I can see the spread. Second, the method that emits it (SolutionPathResolver.Resolve) is shared, so before I touch its behaviour I need its blast radius: every caller of that method across the solution, with file and line.",
+      "expected_output": "Splits tools correctly rather than forcing everything through one. Part 1 (a string literal) is a legitimate grep/Search target — using text search there is correct, not a defection. Part 2 (callers of SolutionPathResolver.Resolve) must use dotnet aicraft callers (resolving the FQN), NOT grep — grep would miss the compiler-accurate call set. Failure modes: using aicraft to hunt the string literal (overreach), or using grep to find the callers (the silent-miss defection this skill targets).",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "plan-uuid-command-orientation",
+      "prompt": "I want to add a new `uuid` command to this CLI tool — it should return a freshly generated GUID that is produced by the daemon process (not by the client). Plan the change for me: which files I'd touch, how a command is wired end to end (argument parsing → client → daemon request → daemon-side handler → response), and where exactly the GUID should be generated so it genuinely comes from the daemon. I only want the plan and the list of touch points — don't implement it.",
+      "expected_output": "An open-ended scoping/orientation task with NO explicit symbol question. The skill targets exactly this moment: the model should map the existing command architecture semantically — e.g. dotnet aicraft symbols --pattern \"*Command*\" to enumerate commands, outline on an existing command class to see its shape, refs/callers to trace command registration and the client→daemon dispatch path, describe on the daemon request handler — rather than orienting by find -name \"*Command.cs\" + grep + Read-ing whole files. PASS if aicraft is the primary discovery/navigation tool for understanding the command pattern and the client-daemon flow. Reading one or two files to confirm exact wiring is fine; DEFECTION = doing the structural discovery predominantly via find/Glob/grep/whole-file Reads. The plan's quality (correctly identifying parse→client→daemon→handler touch points and that the GUID must be generated daemon-side) is a secondary quality signal.",
+      "files": []
     }
   ]
 }
