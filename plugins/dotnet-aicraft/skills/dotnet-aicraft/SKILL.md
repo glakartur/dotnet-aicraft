@@ -1,44 +1,42 @@
 ---
 name: dotnet-aicraft
 description: >
-  Understand and safely change .NET/C#/F#/VB.NET code with compiler-grade certainty: find every
-  real reference, caller, implementation and override; jump to definitions; inspect a symbol's
-  signature/types/doc, outline what a type or file declares, or read just one symbol's source;
-  rename symbols without breaking the build; surface dead code and compiler errors. The payoff is
-  correct answers and safe edits where text search quietly gives wrong ones — and far less time
-  spent reading whole files (or guessing at BCL/NuGet types that have no source on disk).
+  Compiler-grade exploration, understanding and safe edits for .NET/C#/F#/VB.NET via Roslyn —
+  accurate where text search silently fails (interface dispatch, overrides, extension methods,
+  generics, partial classes), and far cheaper than reading whole files or guessing at BCL/NuGet
+  types with no source on disk. Use it to:
+  - explore and understand unfamiliar .NET code — what's there, how it's structured, how it connects
+  - read a method's body or any symbol's source, and see a class's structure (its members and their
+    signatures), without opening the file; also inspect a symbol's exact signature, types and XML-doc
+  - find every real reference / caller / implementation / override; jump to a definition
+  - rename safely without breaking the build; surface dead code and compiler errors
 
-  STOP before you locate, search, trace, or read .NET/C#/F#/VB.NET code by any text- or
-  file-based means — whether a Bash command (`grep -r`, `find -name "*.cs"`, `cat`/`head` a
-  `.cs`/`.vb`/`.fs` file, `ls`) or a dedicated tool (Search, Grep, Glob, Read). Use this instead;
-  it is their drop-in replacement and it is more accurate, because text search misses interface
-  dispatch, overrides, extension methods, generics and partial classes.
+  STOP before you locate, search, trace or read .NET code by any text- or file-based means — a Bash
+  command (`grep -r`, `find`, `cat`/`head`, `ls`) or a tool (Search, Grep, Glob, Read). This is their
+  drop-in, more-accurate replacement.
 
-  This is NOT only for explicit symbol questions. The most common moment to reach for it is
-  open-ended orientation: exploring or understanding an unfamiliar .NET codebase, scoping a
-  change, or tracing how a type/DTO/table/field/feature flows through the code as part of any
-  task (a Jira ticket, a bugfix, a refactor). The instinct to `grep -r`/`find` your way around
-  to get your bearings is exactly when this answers the question correctly and faster. When you
-  delegate exploration to a subagent, tell it to use this skill too.
+  Not just for explicit symbol questions. The biggest win is open-ended orientation: exploring an
+  unfamiliar .NET solution, scoping a change, or tracing how a type/DTO/field/feature flows for a
+  ticket, bugfix or refactor — exactly when you'd instinctively `grep`/`find` to get your bearings.
+  Delegating exploration to a subagent? Tell it to use this skill too.
 
-  Triggers: "find references/usages", "who calls X", "go to definition", "what implements X",
-  "where is X defined", "find/locate the class/method/file", "how does this flow / where is it
-  set", "what is this symbol / what's its signature / show me its doc", "what members does this
-  type/file have / outline this type", "show me the source of X / read just this method", "rename
-  symbol", "is this dead code", "find unused", "compiler errors" — and any time a
-  .sln/.csproj/.cs/.vb/.fs is in scope or mentioned.
-version: 0.11.0
+  Triggers: "explore/understand this .NET code", "find references/usages", "who calls X", "go to
+  definition", "what implements X", "where is X defined", "find the class/method", "how does this
+  flow / where is it set", "what does this class look like / its methods and signatures / outline
+  it", "show me method X's body / the source of X", "what's this symbol / its signature / doc",
+  "rename symbol", "is this dead code", "find unused", "compiler errors" — or any time a
+  .sln/.csproj/.cs/.vb/.fs is in scope.
+version: 0.11.1
 ---
 
 # dotnet-aicraft
 
 Semantic .NET analysis via Roslyn — compiler-grade answers about your code, on demand.
 
-**It costs you nothing and isn't yours to manage.** A background daemon auto-starts on first use
-and idles out after 60 min — you never spin it up or tend it. The solution load (even dozens of
-projects) happens inside that process, not your context, so it spends **zero tokens**; your only
-outlay is a brief wait on the first query (~50ms each after). The payoff is precise, trustworthy
-results — so a large solution is a reason to use it, not a cost to avoid.
+**Costs you nothing to run.** A background daemon auto-starts on first use and idles out after
+60 min — you never manage it. The solution load happens in that process, not your context, so it
+spends **zero tokens**; you pay only a brief wait on the first query (~50ms each after). A large
+solution is therefore a reason to use it, not a cost to avoid.
 
 ## Question → command
 
@@ -59,40 +57,29 @@ results — so a large solution is a reason to use it, not a cost to avoid.
 | Find a symbol by (partial) name | `symbols --pattern "Foo*"` |
 | Does it compile? errors / analyzer warnings, before or after a change | `diagnostics --severity error` (or `warning`) |
 
-grep/Glob/Read **miss**: renamed locals, interface dispatch, virtual/override calls,
-extension methods, generics, partial classes, XML-doc refs. Roslyn finds all of them.
+grep/Glob/Read **miss** what Roslyn finds: renamed locals, interface dispatch, virtual/override
+calls, extension methods, generics, partial classes, XML-doc refs.
 
-## What you can get from it
+## More than pinpoint lookups — your orientation tool
 
-This is also your tool for *orienting* in unfamiliar .NET code — scoping a change, tracing how a
-type/DTO/field flows, getting your bearings on a ticket — not just for pinpoint lookups. The
-questions it answers with compiler certainty, where text search only guesses:
+Reach for it to *get your bearings* in unfamiliar .NET code — scope a change, trace how a
+type/DTO/field flows for a ticket — not just for explicit symbol questions. With compiler certainty
+where text search only guesses:
 
-- **Locate by name or fragment** — the semantic replacement for `find`/`ls` when you're hunting
-  "where's the class/method called `Foo`?": `symbols --pattern "Foo*"` returns every match across
-  the whole solution with its fully-qualified name, kind and location. No path-guessing, no
-  walking namespaces by hand.
-- **Identity & shape** — your replacement for opening a file to *read code*: a symbol's signature,
-  parameter/return types, modifiers, attributes, XML-doc and overloads (`describe`); a type's
-  members & structure (`outline`); and one method's verbatim body or a type's source — just that
-  block, with its span — via `source`, instead of `Read`-ing the whole file to find it. When you
-  catch yourself about to open a file to see a method body or learn a class's shape, reach here
-  first. These even work on BCL/NuGet types with no source on disk, so you stop guessing at
-  framework signatures.
-- **Relationships** — who uses, calls, implements or overrides it (`refs` / `callers` / `impls`);
-  and from any usage, where it's defined (`definition`).
-- **Impact & safety** — the full blast radius before a change, a build-safe `rename`, dead-code
-  candidates (`unused`), and compiler errors/warnings without a full build (`diagnostics`).
+- **Locate by name/fragment** — `symbols --pattern "Foo*"` replaces `find`/`ls` for "where's the
+  class/method `Foo`?": every match across the solution with FQN, kind and location.
+- **Identity & shape** — replaces opening a file to read code: signature, param/return types,
+  modifiers, attributes, XML-doc, overloads (`describe`); a type's members & structure (`outline`);
+  one method's verbatim body (`source`). Works even on BCL/NuGet types with no source on disk.
+- **Relationships** — who uses / calls / implements / overrides it (`refs` / `callers` / `impls`);
+  and from a usage, where it's defined (`definition`).
+- **Impact & safety** — full blast radius before a change, build-safe `rename`, dead code
+  (`unused`), compiler errors without a full build (`diagnostics`).
 
-The mid-task trap worth naming: **a `file:line` for a definition is not its blast radius.** A
-plan that says "defined at `Foo.cs:42`" tells you where the symbol lives, not who depends on it —
-the moment the task becomes "what breaks if I change this" or "inventory every consumer of this
-contract", that's `refs`/`callers`. They see interface dispatch, overrides and extension methods
-that a grep of the name silently misses, handing you an incomplete list you'd then trust.
-
-grep still wins for genuine *text* — string literals, comments, log messages, headers, config
-values, `using` lines, markdown — so use it there without hesitation, and reach here the moment
-the question is about a symbol.
+**A `file:line` is not a blast radius.** "Defined at `Foo.cs:42`" tells you where a symbol lives,
+not who depends on it. The moment the task is "what breaks if I change this" or "every consumer of
+this contract", that's `refs`/`callers` — they catch interface dispatch, overrides and extension
+methods a name-grep silently misses, so you don't act on an incomplete list.
 
 ## Two things to know
 
