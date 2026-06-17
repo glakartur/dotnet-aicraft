@@ -44,6 +44,29 @@ covers them.
 - **`change-namespace`** — file-level namespace move/sync; see paused brainstorm
   (`brainstorms/aicraft-change-namespace`). Decisions locked, paused on engine choice.
 
+## Tranche 4 — codebase-health / graph analysis (exploratory)
+
+Whole-codebase structural insight, framed as *"the tools cover … saving roughly 10x tokens on
+navigation"*. Most of these read the symbol + project graph Roslyn already holds, so they fit the
+**efficiency** criterion (agent never reads whole files to reconstruct the graph). Each needs an
+ADR-0001 sanity check before it earns a slot — some items below already have a home, and one
+collides with the data-source boundary.
+
+- **anti-pattern detection** — flag known structural smells from the semantic model (god classes,
+  feature envy, leaky abstractions, public-mutable-static, etc.). New; in-scope if rules stay
+  symbol-graph-derived, not heuristic text scanning.
+- **circular dependency detection** — cycles in the namespace / type / project reference graph.
+  New; squarely in-scope (pure graph query grep cannot do).
+- **dependency graph visualization** — emit the project/type dependency graph in a machine-readable
+  form (DOT/JSON) the agent can reason over. New; in-scope as a render of the `projects` graph.
+- **dead code analysis** — already partially covered (the skill surfaces dead code / unused
+  symbols today); a dedicated whole-solution sweep could be the explicit command.
+- **symbol resolution, type hierarchies, project graphs** — already shipped or planned: see
+  `definition`/`refs`/`impls` (T1), `hierarchy` (T2), `projects` (T3). No new slot needed.
+- **test coverage mapping** — ⚠️ conflicts with **Out of scope** below: coverage is runtime/execution
+  data per ADR-0001. A *static* test→symbol map (which tests reference which symbols, via `refs`
+  from test assemblies) would be in-scope; line/branch coverage would not. Needs a decision.
+
 ## Out of scope (per ADR-0001)
 
 NuGet metadata, coverage, runtime/execution data — different kind of tool.
