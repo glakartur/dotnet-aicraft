@@ -72,6 +72,26 @@ public record SymbolResult(
     string? ContainingType,
     string? ContainingNamespace);
 
+/// <summary>
+/// One node in a type's inheritance lineage tree (the <c>hierarchy</c> command). Carries the same
+/// located-symbol identity fields as <see cref="SymbolResult"/> so each node is consistent with
+/// <c>impls</c>, plus <see cref="Children"/> (the immediate base or derived types in the requested
+/// direction) and <see cref="Truncated"/> (set when a <c>--max-depth</c> cap elides this node's
+/// children rather than them being genuinely absent). Metadata base types (with
+/// <c>--include-framework</c>) carry an empty <see cref="File"/> and zero line/col. See plan D1.
+/// </summary>
+public record HierarchyNode(
+    string Name,
+    string FullName,
+    string Kind,
+    string File,
+    int Line,
+    int Col,
+    string? ContainingType,
+    string? ContainingNamespace,
+    bool Truncated,
+    IReadOnlyList<HierarchyNode> Children);
+
 public record SymbolsResultPage(
     IReadOnlyList<SymbolResult> Items,
     bool HasMore);

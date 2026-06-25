@@ -255,6 +255,7 @@ public sealed class DaemonServer : IAsyncDisposable
                 "rename"   => await HandleRenameAsync(req, ct),
                 "impls"    => await HandleImplsAsync(req, ct),
                 "callers"  => await HandleCallersAsync(req, ct),
+                "hierarchy" => await HandleHierarchyAsync(req, ct),
                 "symbols"  => await HandleSymbolsAsync(req, ct),
                 "diagnostics" => await HandleDiagnosticsAsync(req, ct),
                 "unused"   => await HandleUnusedAsync(req, ct),
@@ -609,6 +610,23 @@ public sealed class DaemonServer : IAsyncDisposable
             GetOptionalInt(p, "col"),
             GetOptionalString(p, "direction"),
             GetOptionalInt(p, "depth"),
+            ct);
+    }
+
+    private async Task<object> HandleHierarchyAsync(DaemonRequest req, CancellationToken ct)
+    {
+        var p = GetParams(req);
+        var solution = GetSolution();
+
+        return await DotnetAICraft.Commands.Hierarchy.UseCase.ResolveAsync(
+            solution,
+            GetOptionalString(p, "symbol"),
+            GetOptionalString(p, "file"),
+            GetOptionalInt(p, "line"),
+            GetOptionalInt(p, "col"),
+            GetOptionalString(p, "direction"),
+            GetOptionalBool(p, "includeFramework") ?? false,
+            GetOptionalInt(p, "maxDepth"),
             ct);
     }
 

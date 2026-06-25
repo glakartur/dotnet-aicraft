@@ -291,6 +291,40 @@ dotnet aicraft callers --solution App.sln \
   --direction both --depth 2
 ```
 
+### Find inheritance lineage (hierarchy)
+
+`hierarchy` is the inheritance counterpart to `impls`: `impls` answers *who realizes this
+contract*, `hierarchy` answers *what is this type's inheritance lineage*. It returns a nested
+tree of a type's base types (`--direction up`) or derived types (`--direction down`),
+transitively, across all projects in the solution, and generics-aware. `--direction` is
+**required** (`up` or `down`, no default).
+
+```bash
+# Base-type chain (up) — BCL/framework bases omitted by default
+dotnet aicraft hierarchy --solution App.sln --symbol "MyApp.Animals.Puppy" --direction up
+
+# Continue the chain through framework bases, up to object
+dotnet aicraft hierarchy --solution App.sln \
+  --symbol "MyApp.Animals.Puppy" --direction up --include-framework
+
+# Derived types (down), transitive across projects
+dotnet aicraft hierarchy --solution App.sln --symbol "MyApp.Animals.Animal" --direction down
+
+# Cap traversal depth; nodes with elided children are marked truncated
+dotnet aicraft hierarchy --solution App.sln \
+  --symbol "MyApp.Animals.Animal" --direction down --max-depth 2
+
+# By file location instead of --symbol
+dotnet aicraft hierarchy --solution App.sln \
+  --file Animals/Animal.cs --line 5 --col 18 --direction down
+```
+
+Targets a class, struct, interface, or record. For an interface, `down` lists derived
+**interfaces** only — implementing classes remain the job of `impls`. `--max-depth` defaults
+to no cap; truncated nodes are always marked, never silently presented as complete. JSON
+(`--format json`) uses the same envelope as `impls`, where each match's `result` is the root
+node of the tree (`children[]` nested on every node).
+
 ### Search symbols by pattern
 
 ```bash
@@ -404,6 +438,7 @@ a background daemon that loads the solution and keeps it in memory. The daemon:
 | `dotnet aicraft rename` | Safe rename across solution (with `--dry-run`) |
 | `dotnet aicraft impls` | Implementations of interface/abstract member |
 | `dotnet aicraft callers` | Call graph (`incoming`, `outgoing`, `both`) with `--depth` |
+| `dotnet aicraft hierarchy` | Type inheritance lineage (`up` base types, `down` derived types) |
 | `dotnet aicraft symbols` | Search symbols by name pattern with pagination |
 | `dotnet aicraft diagnostics` | Roslyn diagnostics (`severity/project-name/file` filters) |
 | `dotnet aicraft unused` | Candidates for unused/dead code |

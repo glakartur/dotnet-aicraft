@@ -171,6 +171,39 @@ public static class TextOutput
         pathIds.Remove(nodeId);
     }
 
+    // ── Hierarchy ──────────────────────────────────────────────────────────────
+    public static void WriteHierarchy(HierarchyNode root, string direction, string solution)
+    {
+        _ = solution;
+        var dir = string.Equals(direction, "up", StringComparison.OrdinalIgnoreCase) ? "up" : "down";
+        var annotation = root.Children.Count == 0
+            ? (dir == "up" ? "no base types" : "no derived types")
+            : null;
+        WriteSectionLabel($"hierarchy ({dir})", annotation);
+
+        // Unlike WriteCallers, the section label here does not depend on a post-traversal count,
+        // so the DFS writes each row directly — no intermediate buffer needed.
+        WriteHierarchyDfs(root, 0);
+    }
+
+    private static void WriteHierarchyDfs(HierarchyNode node, int depth)
+    {
+        var indent = new string(' ', depth * 2);
+        var identity = $"{node.Kind} {node.FullName}";
+        // Metadata nodes (--include-framework) carry an empty File and render location-less,
+        // matching WriteDefinition. HierarchyNode.File is non-nullable, so key on emptiness.
+        var line = string.IsNullOrEmpty(node.File)
+            ? $"{indent}{identity}"
+            : $"{indent}{node.File}:{node.Line}:{node.Col}: {identity}";
+        if (node.Truncated)
+            line += " (truncated)";
+        Console.Out.WriteLine(line);
+
+        // No cycle guard: inheritance is acyclic; multi-path nodes are emitted faithfully (D8).
+        foreach (var child in node.Children)
+            WriteHierarchyDfs(child, depth + 1);
+    }
+
     // ── Symbols ──────────────────────────────────────────────────────────────
     public static void WriteSymbols(SymbolsResultPage page, string pattern, string solution)
     {

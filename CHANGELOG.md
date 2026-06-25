@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- `hierarchy` command — type inheritance lineage, the counterpart to `impls`.
+  Returns a nested tree of a type's base types (`--direction up`) or derived
+  types (`--direction down`), transitively across all solution projects and
+  generics-aware. `--direction` is required (`up`/`down`, no default);
+  `--include-framework` extends `up` through BCL/framework bases up to `object`
+  (omitted by default); `--max-depth` caps traversal (no cap by default, with
+  truncated nodes always marked). Interface `down` lists derived interfaces only
+  (implementing classes remain `impls`). JSON rides the `impls` envelope, with
+  each match's `result` as the root tree node.
 - `--format <text|json>` option on every command. `text` is the new default and
   uses a compiler/ripgrep-style hybrid (`file:line:col: context` for location
   lists; MSBuild-style `severity file:line:col [CODE]: message` for

@@ -79,6 +79,7 @@ root.Add(DefinitionCommand.Build(solutionOption, projectOption, idleTimeoutOptio
 root.Add(RenameCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(ImplsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(CallersCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
+root.Add(HierarchyCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(DiagnosticsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(SymbolsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
 root.Add(UnusedCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption, formatOption));
