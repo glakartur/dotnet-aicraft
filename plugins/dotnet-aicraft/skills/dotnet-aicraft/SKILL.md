@@ -9,6 +9,7 @@ description: >
   - read a method's body or any symbol's source, and see a class's structure (its members and their
     signatures), without opening the file; also inspect a symbol's exact signature, types and XML-doc
   - find every real reference / caller / implementation / override; jump to a definition
+  - trace a type's inheritance lineage — its base-type chain or its transitive derived types
   - rename safely without breaking the build; surface dead code and compiler errors
 
   STOP before you locate, search, trace or read .NET code by any text- or file-based means — a Bash
@@ -24,9 +25,10 @@ description: >
   definition", "what implements X", "where is X defined", "find the class/method", "how does this
   flow / where is it set", "what does this class look like / its methods and signatures / outline
   it", "show me method X's body / the source of X", "what's this symbol / its signature / doc",
-  "rename symbol", "is this dead code", "find unused", "compiler errors" — or any time a
-  .sln/.csproj/.cs/.vb/.fs is in scope.
-version: 0.11.1
+  "what does X inherit from / its base class chain", "what derives from / subclasses / extends X",
+  "show the inheritance hierarchy/tree of X", "rename symbol", "is this dead code", "find unused",
+  "compiler errors" — or any time a .sln/.csproj/.cs/.vb/.fs is in scope.
+version: 0.12.0
 ---
 
 # dotnet-aicraft
@@ -52,6 +54,7 @@ solution is therefore a reason to use it, not a cost to avoid.
 | What's a type/file made of? its members & structure (no bodies) — instead of opening the file | `outline --symbol "FQN"` / `outline --file` |
 | Read one method's body / a symbol's source — instead of opening the file to find it | `source --symbol "FQN"` |
 | What implements or overrides this? (interface / virtual / abstract) | `impls --symbol "FQN"` |
+| What's a type's inheritance lineage? base types (up) or derived types (down), transitive | `hierarchy --symbol "FQN" --direction up\|down` |
 | Is this dead/unused? safe to delete? | `unused` + `refs` |
 | Rename a symbol safely | `rename --dry-run` then `rename` |
 | Find a symbol by (partial) name | `symbols --pattern "Foo*"` |
@@ -72,7 +75,8 @@ where text search only guesses:
   modifiers, attributes, XML-doc, overloads (`describe`); a type's members & structure (`outline`);
   one method's verbatim body (`source`). Works even on BCL/NuGet types with no source on disk.
 - **Relationships** — who uses / calls / implements / overrides it (`refs` / `callers` / `impls`);
-  and from a usage, where it's defined (`definition`).
+  a type's base-type chain or transitive derived types (`hierarchy`); and from a usage, where it's
+  defined (`definition`).
 - **Impact & safety** — full blast radius before a change, build-safe `rename`, dead code
   (`unused`), compiler errors without a full build (`diagnostics`).
 
@@ -103,7 +107,7 @@ dotnet aicraft server reload   # -s <path> only if auto-discovery is ambiguous
 
 - Exact flags + output schema for one command → `references/commands/<command>.md` — build the
   path directly, no need to list the directory (e.g. `references/commands/rename.md`, `callers.md`,
-  `describe.md`, `outline.md`, `source.md`, `unused.md`, `server.md` for daemon management).
+  `hierarchy.md`, `describe.md`, `outline.md`, `source.md`, `unused.md`, `server.md` for daemon management).
 - Cross-cutting (global options, output/path conventions, error codes, symbol-name format)
   → `references/commands/_overview.md`
 - Workflow patterns + decision trees → `references/patterns.md`

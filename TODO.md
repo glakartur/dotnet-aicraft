@@ -43,6 +43,12 @@ covers them.
   *safe edits* but expensive: transactional, dry-run + apply, file-watcher conflicts.
 - **`change-namespace`** — file-level namespace move/sync; see paused brainstorm
   (`brainstorms/aicraft-change-namespace`). Decisions locked, paused on engine choice.
+- **`overrides`** (member-level) — given a virtual/abstract member, find its overrides up/down the
+  inheritance chain. Correctness gap (grep can't resolve overrides). Deferred follow-up split off
+  from the `hierarchy` brainstorm, which is scoped to type→type lineage only; see
+  [docs/brainstorms/2026-06-25-hierarchy-command-requirements.md](docs/brainstorms/2026-06-25-hierarchy-command-requirements.md).
+  Open: lands as its own command vs. an `impls` extension (`impls` already covers abstract
+  member→implementations).
 
 ## Tranche 4 — codebase-health / graph analysis (exploratory)
 

@@ -8,7 +8,8 @@ Need to find something?
 ├── Reading a file and have line/col? → refs or callers with --file --line --col
 ├── Partial name only? → symbols --pattern "Partial*"
 ├── Where is it declared? → definition --symbol (or --file --line --col)
-└── Looking for interface implementors? → impls --symbol "Namespace.IInterface"
+├── Looking for interface implementors? → impls --symbol "Namespace.IInterface"
+└── Need a type's inheritance lineage (base chain or derived types)? → hierarchy --symbol "FQN" --direction up|down
 
 Need to understand something (instead of reading the whole file)?
 ├── What IS this symbol? signature, types, modifiers, attrs, doc, overloads → describe
@@ -22,6 +23,12 @@ Need to change something?
 The inspection trio (`describe` / `outline` / `source`) answers from the in-memory daemon and works on
 metadata symbols (BCL/NuGet) that have no file on disk — reach for them instead of `Read`-ing a whole
 file to learn a signature, a type's shape, or one member's body.
+
+`impls` vs `hierarchy` — both are about "what relates to this type", but answer different questions.
+`impls` is *interface/abstract member → concrete implementations*. `hierarchy` is *type → type
+inheritance lineage*: a class's base-type chain (`up`) or its transitive subclasses (`down`), or an
+interface's extended/derived interfaces. If the question is "what subclasses this base class" or
+"what's this type's ancestry", that's `hierarchy`, not `impls`.
 
 ---
 
@@ -41,6 +48,11 @@ dotnet aicraft callers --solution App.sln \
 # Step 3: Find implementations if it's an interface member
 dotnet aicraft impls --solution App.sln \
   --symbol "MyApp.Interfaces.IOrderProcessor.ProcessOrder"
+
+# Step 4: If it's a base class/interface, find everything that inherits from it —
+# a behaviour change ripples to every transitive subclass/derived interface.
+dotnet aicraft hierarchy --solution App.sln \
+  --symbol "MyApp.Domain.EntityBase" --direction down
 ```
 
 Decide based on the full evidence set — not grep output.
