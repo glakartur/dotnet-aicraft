@@ -713,11 +713,16 @@ public sealed class DaemonServer : IAsyncDisposable
         // built, so the client's post-reload `status` readiness poll never
         // observes the prior Loaded state and returns early. The client waits for
         // completion by polling `status`, not by holding this request open.
-        StartBackgroundLoad();
+        // Use the state StartBackgroundLoad set synchronously, not a re-read of
+        // _loadState: a fast-failing background load (e.g. a missing solution
+        // file) can flip the volatile field to Unloaded between here and the ack
+        // build, so re-reading would race and under-report the reload as not
+        // pending. The reload contract is that it transitions to Loading.
+        var ackLoadState = StartBackgroundLoad();
         return new
         {
             reloaded = true,
-            loadState = _loadState.ToString().ToLowerInvariant(),
+            loadState = ackLoadState.ToString().ToLowerInvariant(),
             loadedAt = _loadedAt,
             lastLoadAttemptAt = _lastLoadAttemptAt,
             lastLoadErrorCode = _lastLoadError?.Code,
@@ -731,7 +736,7 @@ public sealed class DaemonServer : IAsyncDisposable
     // silently piggy-backing on an older load that may predate the user's edit.
     // _solutionLock still serializes the actual load against file-change and
     // metadata-watcher reloads; awaiting the chain tail observes every queued load.
-    private void StartBackgroundLoad()
+    private DaemonLoadState StartBackgroundLoad()
     {
         lock (_backgroundLoadLock)
         {
@@ -739,6 +744,7 @@ public sealed class DaemonServer : IAsyncDisposable
             // observes the pre-reload state before the task acquires _solutionLock.
             _loadState = DaemonLoadState.Loading;
             _backgroundLoadTask = RunLoadAfterAsync(_backgroundLoadTask);
+            return DaemonLoadState.Loading;
         }
     }
 
