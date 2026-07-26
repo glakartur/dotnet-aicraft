@@ -7,7 +7,7 @@ namespace DotnetAICraft.Commands.Callers;
 
 internal static class UseCase
 {
-    internal static async Task<object> ResolveAsync(
+    internal static async Task<IReadOnlyList<SymbolMatchGroup<CallGraphResult>>> ResolveAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -29,11 +29,11 @@ internal static class UseCase
             ? await SymbolResolver.FromFullNameAllAsync(solution, symbol.Trim(), ct)
             : [await SymbolResolver.FromLocationAsync(solution, file!, line!.Value, col!.Value, ct)];
 
-        var groups = new List<SymbolMatchGroup>();
+        var groups = new List<SymbolMatchGroup<CallGraphResult>>();
         foreach (var sym in targets)
         {
             var graph = await OutputMapping.MapAsync(solution, sym, normalizedDirection, normalizedDepth, ct);
-            groups.Add(new SymbolMatchGroup(sym.ToDisplayString(), sym.GetKindName(), graph));
+            groups.Add(new SymbolMatchGroup<CallGraphResult>(sym.ToDisplayString(), sym.GetKindName(), graph));
         }
 
         return groups;

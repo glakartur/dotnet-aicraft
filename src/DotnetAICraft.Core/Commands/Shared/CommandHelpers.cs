@@ -27,10 +27,9 @@ internal static class CommandHelpers
         }
     }
 
-    public static object? GetDataOrNull(DaemonResponse response)
-        => response.Result;
+    internal sealed record RetryResult<T>(DaemonResponse<T>? Response, ErrorInfo? Error, int SendAttempts);
 
-    public static async Task<DaemonResponse?> SendWithRetryOrWriteErrorAsync(
+    public static async Task<DaemonResponse<T>?> SendWithRetryOrWriteErrorAsync<T>(
         string solutionPath,
         string command,
         object? @params = null,
@@ -46,7 +45,7 @@ internal static class CommandHelpers
 
         var result = await SendWithRetryCoreAsync(
             connect: () => DaemonClient.ConnectOrStartAsync(solutionPath, idleTimeout: idleTimeout),
-            send:    client => client.SendAsync(command, @params, idleTimeoutMinutes: idleTimeoutMinutes, page: page),
+            send:    client => client.SendAsync<T>(command, @params, idleTimeoutMinutes: idleTimeoutMinutes, page: page),
             onRestart: () => Console.Error.WriteLine("[dotnet-aicraft] Daemon connection lost. Restarting..."));
 
         if (result.Error is not null)
@@ -61,11 +60,9 @@ internal static class CommandHelpers
         return result.Response;
     }
 
-    internal sealed record RetryResult(DaemonResponse? Response, ErrorInfo? Error, int SendAttempts);
-
-    internal static async Task<RetryResult> SendWithRetryCoreAsync(
+    internal static async Task<RetryResult<T>> SendWithRetryCoreAsync<T>(
         Func<Task<DaemonClient>> connect,
-        Func<DaemonClient, Task<DaemonResponse>> send,
+        Func<DaemonClient, Task<DaemonResponse<T>>> send,
         Action onRestart)
     {
         DaemonClient? client;
@@ -75,11 +72,11 @@ internal static class CommandHelpers
         }
         catch (DaemonClientValidationException ex)
         {
-            return new RetryResult(null, ex.Error, 0);
+            return new RetryResult<T>(null, ex.Error, 0);
         }
         catch (DaemonTransportException ex)
         {
-            return new RetryResult(null, ex.Error, 0);
+            return new RetryResult<T>(null, ex.Error, 0);
         }
 
         var attempts = 0;
@@ -89,11 +86,11 @@ internal static class CommandHelpers
             {
                 attempts++;
                 var response = await send(client);
-                return new RetryResult(response, null, attempts);
+                return new RetryResult<T>(response, null, attempts);
             }
             catch (DaemonClientValidationException ex)
             {
-                return new RetryResult(null, ex.Error, attempts);
+                return new RetryResult<T>(null, ex.Error, attempts);
             }
             catch (DaemonTransportException)
             {
@@ -109,26 +106,26 @@ internal static class CommandHelpers
             }
             catch (DaemonClientValidationException ex)
             {
-                return new RetryResult(null, ex.Error, attempts);
+                return new RetryResult<T>(null, ex.Error, attempts);
             }
             catch (DaemonTransportException ex)
             {
-                return new RetryResult(null, ex.Error, attempts);
+                return new RetryResult<T>(null, ex.Error, attempts);
             }
 
             try
             {
                 attempts++;
                 var response = await send(client);
-                return new RetryResult(response, null, attempts);
+                return new RetryResult<T>(response, null, attempts);
             }
             catch (DaemonClientValidationException ex)
             {
-                return new RetryResult(null, ex.Error, attempts);
+                return new RetryResult<T>(null, ex.Error, attempts);
             }
             catch (DaemonTransportException ex)
             {
-                return new RetryResult(null, ex.Error, attempts);
+                return new RetryResult<T>(null, ex.Error, attempts);
             }
         }
         finally
@@ -138,7 +135,7 @@ internal static class CommandHelpers
         }
     }
 
-    public static async Task<DaemonResponse?> SendOrWriteValidationErrorAsync(
+    public static async Task<DaemonResponse<T>?> SendOrWriteValidationErrorAsync<T>(
         DaemonClient client,
         string command,
         object? @params = null,
@@ -152,11 +149,11 @@ internal static class CommandHelpers
             return null;
         }
 
-        return await SendOrWriteValidationErrorAsync(() => client.SendAsync(command, @params, idleTimeoutMinutes: idleTimeoutMinutes, page: page), format);
+        return await SendOrWriteValidationErrorAsync(() => client.SendAsync<T>(command, @params, idleTimeoutMinutes: idleTimeoutMinutes, page: page), format);
     }
 
-    internal static async Task<DaemonResponse?> SendOrWriteValidationErrorAsync(
-        Func<Task<DaemonResponse>> send,
+    internal static async Task<DaemonResponse<T>?> SendOrWriteValidationErrorAsync<T>(
+        Func<Task<DaemonResponse<T>>> send,
         OutputFormat format = OutputFormat.Text)
     {
         DebugLog.Write("client", "SendOrWriteValidationErrorAsync begin");
@@ -181,7 +178,7 @@ internal static class CommandHelpers
         }
     }
 
-    public static bool TryHandleError(DaemonResponse response, OutputFormat format = OutputFormat.Text)
+    public static bool TryHandleError<T>(DaemonResponse<T> response, OutputFormat format = OutputFormat.Text)
     {
         if (response.Status == DaemonResponseStatus.Ok)
             return false;
@@ -212,7 +209,7 @@ internal static class CommandHelpers
             TextOutput.WriteError(code, message, details);
     }
 
-    internal static void FlushResponseDebugToStderr(DaemonResponse response)
+    internal static void FlushResponseDebugToStderr<T>(DaemonResponse<T> response)
     {
         if (response.Debug is null) return;
 

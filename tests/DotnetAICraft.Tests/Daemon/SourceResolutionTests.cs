@@ -159,7 +159,7 @@ public class SourceResolutionTests
             () => DaemonServer.ResolveSourceAsync(solution, "Demo.Svc", "/virtual/Svc.cs", 1, 1));
     }
 
-    private static SourceResult Result(SymbolMatchGroup group) => (SourceResult)group.Result;
+    private static SourceResult Result(SymbolMatchGroup<SourceResult> group) => group.Result;
 
     private static Solution BuildSolution(params (string Path, string Code)[] files)
     {

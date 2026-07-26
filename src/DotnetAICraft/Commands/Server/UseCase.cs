@@ -29,7 +29,7 @@ internal static class UseCase
             {
                 try
                 {
-                    await client.SendAsync("status");
+                    await client.SendAsync<DaemonStatus>("status");
                 }
                 catch (DaemonClientValidationException ex)
                 {
@@ -51,10 +51,10 @@ internal static class UseCase
 
         await using (client)
         {
-            DaemonResponse res;
+            DaemonResponse<DaemonShutdownResult> res;
             try
             {
-                res = await client.SendAsync("shutdown");
+                res = await client.SendAsync<DaemonShutdownResult>("shutdown");
             }
             catch (DaemonClientValidationException ex)
             {
@@ -71,23 +71,23 @@ internal static class UseCase
     {
         var client = await DaemonClient.TryConnectAsync(solutionPath);
         if (client is null)
-            return new { running = false, solutionPath };
+            return new ServerStatusResult(false, solutionPath);
 
         await using (client)
         {
-            DaemonResponse res;
+            DaemonResponse<DaemonStatus> res;
             try
             {
-                res = await client.SendAsync("status");
+                res = await client.SendAsync<DaemonStatus>("status");
             }
             catch (DaemonClientValidationException ex)
             {
-                return new { error = ex.Error };
+                return new ServerStatusResult(true, solutionPath, Error: ex.Error);
             }
 
             return res.Status == DaemonResponseStatus.Ok
                 ? res.Result!
-                : new { error = res.Error };
+                : new ServerStatusResult(true, solutionPath, Error: res.Error);
         }
     }
 
@@ -111,7 +111,7 @@ internal static class UseCase
         {
             await using (client)
             {
-                var ack = await client.SendAsync("reload", idleTimeoutMinutes: idleTimeoutMinutes);
+                var ack = await client.SendAsync<DaemonReloadResult>("reload", idleTimeoutMinutes: idleTimeoutMinutes);
                 if (ack.Status != DaemonResponseStatus.Ok)
                     return (null, ack.Error);
             }
@@ -128,7 +128,7 @@ internal static class UseCase
         try
         {
             await using var ready = await DaemonClient.ConnectOrStartAsync(solutionPath);
-            var status = await ready.SendAsync("status");
+            var status = await ready.SendAsync<DaemonStatus>("status");
             return status.Status == DaemonResponseStatus.Ok
                 ? (status.Result, null)
                 : (null, status.Error);

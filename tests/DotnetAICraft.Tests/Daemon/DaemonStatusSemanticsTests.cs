@@ -26,7 +26,7 @@ public class DaemonStatusSemanticsTests
     [InlineData(DaemonResponseStatus.Error)]
     public void TryHandleError_NonOkWithoutError_ReturnsContractViolation(DaemonResponseStatus status)
     {
-        var response = new DaemonResponse(
+        var response = new DaemonResponse<object?>(
             Id: "req",
             Status: status,
             Result: null,

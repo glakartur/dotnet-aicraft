@@ -183,8 +183,8 @@ public class OutlineResolutionTests
             () => DaemonServer.ResolveOutlineAsync(solution, "Demo.Svc", "/virtual/Svc.cs", false, false));
     }
 
-    private static SymbolMatchGroup Single(IReadOnlyList<SymbolMatchGroup> groups) => Assert.Single(groups);
-    private static OutlineResult Result(SymbolMatchGroup group) => (OutlineResult)group.Result;
+    private static SymbolMatchGroup<OutlineResult> Single(IReadOnlyList<SymbolMatchGroup<OutlineResult>> groups) => Assert.Single(groups);
+    private static OutlineResult Result(SymbolMatchGroup<OutlineResult> group) => group.Result;
 
     private static Solution BuildSolution(params (string Path, string Code)[] files)
     {

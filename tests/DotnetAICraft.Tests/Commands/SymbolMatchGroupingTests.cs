@@ -38,7 +38,7 @@ public class SymbolMatchGroupingTests
         Assert.Contains(groups, g => g.Symbol == "Demo.Svc.Run(string)");
         Assert.Contains(groups, g => g.Symbol == "Demo.Svc.Run(int)");
         // Each overload is called exactly once, in its own group — not merged.
-        Assert.All(groups, g => Assert.Single((IReadOnlyList<ReferenceResult>)g.Result));
+        Assert.All(groups, g => Assert.Single(g.Result));
     }
 
     [Fact]
@@ -62,9 +62,9 @@ public class SymbolMatchGroupingTests
         var result = await DotnetAICraft.Commands.Callers.UseCase.ResolveAsync(
             fixture.Solution, "Demo.Svc.Run", null, null, null, "incoming", 1);
 
-        var groups = Assert.IsAssignableFrom<IReadOnlyList<SymbolMatchGroup>>(result);
+        var groups = result;
         Assert.Equal(2, groups.Count);
-        Assert.All(groups, g => Assert.IsType<CallGraphResult>(g.Result));
+        Assert.All(groups, g => Assert.NotNull(g.Result));
     }
 
     private static SolutionFixture CreateSolution()

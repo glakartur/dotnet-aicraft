@@ -45,7 +45,7 @@ public class DebugSequencingTests
     [Fact]
     public void FlushResponseDebugToStderr_AcceptsJsonElementArray()
     {
-        var serialized = DotnetAICraft.Output.JsonOutput.Serialize(new DaemonResponse(
+        var serialized = DotnetAICraft.Output.JsonOutput.Serialize(new DaemonResponse<object?>(
             Id: "req",
             Status: DaemonResponseStatus.Ok,
             Result: null,
@@ -54,7 +54,7 @@ public class DebugSequencingTests
             Page: null,
             Meta: null));
 
-        var round = DotnetAICraft.Output.JsonOutput.Deserialize<DaemonResponse>(serialized);
+        var round = DotnetAICraft.Output.JsonOutput.Deserialize<DaemonResponse<object?>>(serialized);
         Assert.NotNull(round);
 
         using var errCap = ConsoleErrorCapture.Start();
@@ -79,7 +79,7 @@ public class DebugSequencingTests
 
             DebugLog.Write("client", "before-send");
 
-            var response = new DaemonResponse(
+            var response = new DaemonResponse<object?>(
                 Id: "req",
                 Status: DaemonResponseStatus.Ok,
                 Result: null,
@@ -119,7 +119,7 @@ public class DebugSequencingTests
     {
         using var errCap = ConsoleErrorCapture.Start();
 
-        var response = new DaemonResponse(
+        var response = new DaemonResponse<object?>(
             Id: "req",
             Status: DaemonResponseStatus.Ok,
             Result: null,

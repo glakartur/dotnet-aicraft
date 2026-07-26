@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Models;
 using DotnetAICraft.Output;
@@ -24,7 +23,7 @@ internal static class Entry
             ? (object)new { symbol = symbol.Trim(), publicOnly, includeInherited }
             : new { file = file!.FullName, publicOnly, includeInherited };
 
-        var res = await CommandHelpers.SendWithRetryOrWriteErrorAsync(
+        var res = await CommandHelpers.SendWithRetryOrWriteErrorAsync<IReadOnlyList<SymbolMatchGroup<OutlineResult>>>(
             solutionPath, CommandName, @params, idleTimeout, format: format);
         if (res is null)
             return;
@@ -35,12 +34,12 @@ internal static class Entry
         var solutionDir = Path.GetDirectoryName(solutionPath) ?? string.Empty;
         if (format == OutputFormat.Json)
         {
-            JsonOutput.WriteWithSolutionRoot(solutionDir, CommandHelpers.GetDataOrNull(res));
+            JsonOutput.WriteWithSolutionRoot(solutionDir, res.Result);
         }
         else
         {
             TextOutput.WriteSolutionRootHeader(solutionDir);
-            var groups = JsonOutput.Deserialize<IReadOnlyList<SymbolMatchGroup>>((JsonElement)res.Result!) ?? Array.Empty<SymbolMatchGroup>();
+            var groups = res.Result ?? Array.Empty<SymbolMatchGroup<OutlineResult>>();
             if (groups.Count == 0)
             {
                 TextOutput.WriteOutlineEmpty();
@@ -49,9 +48,7 @@ internal static class Entry
             for (var i = 0; i < groups.Count; i++)
             {
                 TextOutput.WriteMatchHeader(groups[i].Symbol, groups[i].Kind);
-                var result = JsonOutput.Deserialize<OutlineResult>((JsonElement)groups[i].Result);
-                if (result is not null)
-                    TextOutput.WriteOutline(result, solutionPath);
+                TextOutput.WriteOutline(groups[i].Result, solutionPath);
                 if (i < groups.Count - 1)
                     Console.Out.WriteLine();
             }

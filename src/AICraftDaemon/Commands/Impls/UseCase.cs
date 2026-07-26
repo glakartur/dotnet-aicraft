@@ -7,7 +7,7 @@ namespace DotnetAICraft.Commands.Impls;
 
 internal static class UseCase
 {
-    internal static async Task<IReadOnlyList<SymbolMatchGroup>> ResolveAsync(
+    internal static async Task<IReadOnlyList<SymbolMatchGroup<IReadOnlyList<SymbolResult>>>> ResolveAsync(
         Solution solution,
         string symbol,
         CancellationToken ct = default)
@@ -16,7 +16,7 @@ internal static class UseCase
 
         var targets = await SymbolResolver.FromFullNameAllAsync(solution, symbol, ct);
         var solutionDir = Path.GetDirectoryName(solution.FilePath) ?? string.Empty;
-        var groups = new List<SymbolMatchGroup>();
+        var groups = new List<SymbolMatchGroup<IReadOnlyList<SymbolResult>>>();
 
         foreach (var sym in targets)
         {
@@ -25,7 +25,7 @@ internal static class UseCase
                 : await SymbolFinder.FindImplementationsAsync(sym, solution, projects: null, ct);
 
             var items = impls.Select(impl => OutputMapping.Map(impl, solutionDir)).ToList();
-            groups.Add(new SymbolMatchGroup(sym.ToDisplayString(), sym.GetKindName(), items));
+            groups.Add(new SymbolMatchGroup<IReadOnlyList<SymbolResult>>(sym.ToDisplayString(), sym.GetKindName(), items));
         }
 
         return groups;

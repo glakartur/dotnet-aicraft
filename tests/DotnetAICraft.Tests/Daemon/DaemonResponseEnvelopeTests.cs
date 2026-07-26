@@ -9,7 +9,7 @@ public class DaemonResponseEnvelopeTests
     [Fact]
     public void Serialize_OkEnvelope_IncludesStatusAndOmitsError()
     {
-        var response = new DaemonResponse(
+        var response = new DaemonResponse<object?>(
             Id: "abc",
             Status: DaemonResponseStatus.Ok,
             Result: new { value = 1 },
@@ -26,7 +26,7 @@ public class DaemonResponseEnvelopeTests
     [Fact]
     public void Serialize_ProblemEnvelope_RequiresError()
     {
-        var response = new DaemonResponse(
+        var response = new DaemonResponse<object?>(
             Id: "abc",
             Status: DaemonResponseStatus.Problem,
             Result: null,
@@ -59,7 +59,7 @@ public class DaemonResponseEnvelopeTests
     [Fact]
     public void Serialize_PaginatedResponse_UsesPageContractWithoutNextOffset()
     {
-        var response = new DaemonResponse(
+        var response = new DaemonResponse<object?>(
             Id: "abc",
             Status: DaemonResponseStatus.Ok,
             Result: new[] { "item" },

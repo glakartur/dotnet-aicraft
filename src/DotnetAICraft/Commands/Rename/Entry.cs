@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Models;
 using DotnetAICraft.Output;
@@ -32,7 +31,7 @@ internal static class Entry
 
         await using (client)
         {
-            var res = await CommandHelpers.SendOrWriteValidationErrorAsync(client, CommandName, @params, idleTimeout, format: format);
+            var res = await CommandHelpers.SendOrWriteValidationErrorAsync<RenameResult>(client, CommandName, @params, idleTimeout, format: format);
             if (res is null)
                 return;
 
@@ -42,13 +41,12 @@ internal static class Entry
             if (format == OutputFormat.Json)
             {
                 var solutionDir = Path.GetDirectoryName(solutionPath) ?? string.Empty;
-                JsonOutput.WriteWithSolutionRoot(solutionDir, CommandHelpers.GetDataOrNull(res));
+                JsonOutput.WriteWithSolutionRoot(solutionDir, res.Result);
             }
             else
             {
-                var rename = JsonOutput.Deserialize<RenameResult>((JsonElement)res.Result!);
-                if (rename is not null)
-                    TextOutput.WriteRename(rename, solutionPath);
+                if (res.Result is not null)
+                    TextOutput.WriteRename(res.Result, solutionPath);
             }
         }
     }

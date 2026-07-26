@@ -7,7 +7,7 @@ namespace DotnetAICraft.Commands.Hierarchy;
 
 internal static class UseCase
 {
-    internal static async Task<IReadOnlyList<SymbolMatchGroup>> ResolveAsync(
+    internal static async Task<IReadOnlyList<SymbolMatchGroup<HierarchyNode>>> ResolveAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -30,13 +30,13 @@ internal static class UseCase
         var targets = await SymbolResolver.ResolveTargetsAsync(solution, symbolArg, file, line, col, ct);
         var solutionDir = Path.GetDirectoryName(solution.FilePath) ?? string.Empty;
 
-        var groups = new List<SymbolMatchGroup>();
+        var groups = new List<SymbolMatchGroup<HierarchyNode>>();
         foreach (var sym in targets)
         {
             var named = HierarchyTargetValidation.EnsureTargetKind(sym);
             var root = await OutputMapping.BuildNodeAsync(
                 solution, named, normalizedDirection, includeFramework, normalizedMaxDepth, depth: 0, solutionDir, ct);
-            groups.Add(new SymbolMatchGroup(named.ToDisplayString(), named.GetKindName(), root));
+            groups.Add(new SymbolMatchGroup<HierarchyNode>(named.ToDisplayString(), named.GetKindName(), root));
         }
 
         return groups;

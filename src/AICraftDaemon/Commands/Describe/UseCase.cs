@@ -6,7 +6,7 @@ namespace DotnetAICraft.Commands.Describe;
 
 internal static class UseCase
 {
-    internal static async Task<IReadOnlyList<SymbolMatchGroup>> ResolveAsync(
+    internal static async Task<IReadOnlyList<SymbolMatchGroup<DescribeCard>>> ResolveAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -32,7 +32,7 @@ internal static class UseCase
 
         var solutionDir = Path.GetDirectoryName(solution.FilePath) ?? string.Empty;
         return describable
-            .Select(s => new SymbolMatchGroup(
+            .Select(s => new SymbolMatchGroup<DescribeCard>(
                 s.ToDisplayString(),
                 s.GetKindName(),
                 OutputMapping.Map(s, solutionDir, ct)))

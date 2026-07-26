@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Models;
 using DotnetAICraft.Output;
@@ -24,7 +23,7 @@ internal static class Entry
             return;
         }
 
-        var res = await CommandHelpers.SendWithRetryOrWriteErrorAsync(
+        var res = await CommandHelpers.SendWithRetryOrWriteErrorAsync<UnusedScanSummary>(
             solutionPath,
             CommandName,
             new
@@ -46,14 +45,13 @@ internal static class Entry
         var solutionDir = Path.GetDirectoryName(solutionPath) ?? string.Empty;
         if (format == OutputFormat.Json)
         {
-            JsonOutput.WriteWithSolutionRoot(solutionDir, CommandHelpers.GetDataOrNull(res));
+            JsonOutput.WriteWithSolutionRoot(solutionDir, res.Result);
         }
         else
         {
             TextOutput.WriteSolutionRootHeader(solutionDir);
-            var summary = JsonOutput.Deserialize<UnusedScanSummary>((JsonElement)res.Result!);
-            if (summary is not null)
-                TextOutput.WriteUnused(summary, solutionPath);
+            if (res.Result is not null)
+                TextOutput.WriteUnused(res.Result, solutionPath);
         }
     }
 }

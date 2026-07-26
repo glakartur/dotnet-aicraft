@@ -2,6 +2,7 @@
 using System.Text;
 using DotnetAICraft.Diagnostics;
 using DotnetAICraft.Models;
+using Models = DotnetAICraft.Models;
 using DotnetAICraft.Output;
 using DotnetAICraft.Roslyn;
 using DotnetAICraft.Commands.Definition;
@@ -240,12 +241,12 @@ public sealed class DaemonServer : IAsyncDisposable
         }
     }
 
-    internal async Task<DaemonResponse> DispatchAsync(DaemonRequest req, CancellationToken ct)
+    internal async Task<DaemonResponse<object?>> DispatchAsync(DaemonRequest req, CancellationToken ct)
     {
         using var debugScope = req.Debug == true ? DebugLog.BeginCapture() : null;
         DebugLog.Write("server", $"DispatchAsync begin command={req.Command} id={req.Id}");
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        DaemonResponse response;
+        DaemonResponse<object?> response;
         try
         {
             object? result = req.Command switch
@@ -271,7 +272,7 @@ public sealed class DaemonServer : IAsyncDisposable
 
             if (req.Command == "symbols" && result is Models.SymbolsResultPage symbolsPage)
             {
-                response = CreateSuccessResponse(
+                response = CreateSuccessResponse<object?>(
                     req.Id,
                     symbolsPage.Items,
                     new Models.PageResponse(
@@ -282,7 +283,7 @@ public sealed class DaemonServer : IAsyncDisposable
             }
             else
             {
-                response = CreateSuccessResponse(
+                response = CreateSuccessResponse<object?>(
                     req.Id,
                     result,
                     new ResponseMeta(sw.ElapsedMilliseconds, _loadedAt));
@@ -323,10 +324,10 @@ public sealed class DaemonServer : IAsyncDisposable
         return response;
     }
 
-    private static DaemonResponse CreateSuccessResponse(string id, object? data, ResponseMeta? meta)
+    private static DaemonResponse<T> CreateSuccessResponse<T>(string id, T? data, ResponseMeta? meta)
         => CreateSuccessResponse(id, data, page: null, meta);
 
-    private static DaemonResponse CreateSuccessResponse(string id, object? data, Models.PageResponse? page, ResponseMeta? meta)
+    private static DaemonResponse<T> CreateSuccessResponse<T>(string id, T? data, Models.PageResponse? page, ResponseMeta? meta)
         => new(
             Id: id,
             Status: DaemonResponseStatus.Ok,
@@ -336,7 +337,7 @@ public sealed class DaemonServer : IAsyncDisposable
             Page: page,
             Meta: meta);
 
-    private static DaemonResponse CreateProblemResponse(string id, ErrorInfo error, ResponseMeta? meta)
+    private static DaemonResponse<object?> CreateProblemResponse(string id, ErrorInfo error, ResponseMeta? meta)
         => new(
             Id: id,
             Status: DaemonResponseStatus.Problem,
@@ -346,7 +347,7 @@ public sealed class DaemonServer : IAsyncDisposable
             Page: null,
             Meta: meta);
 
-    private static DaemonResponse CreateErrorResponse(string id, ErrorInfo error, ResponseMeta? meta)
+    private static DaemonResponse<object?> CreateErrorResponse(string id, ErrorInfo error, ResponseMeta? meta)
         => new(
             Id: id,
             Status: DaemonResponseStatus.Error,
@@ -358,7 +359,7 @@ public sealed class DaemonServer : IAsyncDisposable
 
     // ── Command handlers ──────────────────────────────────────────────────────
 
-    private async Task<object> HandleRefsAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<IReadOnlyList<Models.ReferenceResult>>>> HandleRefsAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -372,7 +373,7 @@ public sealed class DaemonServer : IAsyncDisposable
                 GetRequiredInt(p, "col"), ct)];
 
         var solutionDir = GetSolutionDir(solution);
-        var groups = new List<Models.SymbolMatchGroup>();
+        var groups = new List<Models.SymbolMatchGroup<IReadOnlyList<Models.ReferenceResult>>>();
 
         foreach (var symbol in targets)
         {
@@ -385,13 +386,13 @@ public sealed class DaemonServer : IAsyncDisposable
                     return new Models.ReferenceResult(file, line, col, loc.Location.GetContextLine());
                 })
                 .ToList();
-            groups.Add(new Models.SymbolMatchGroup(symbol.ToDisplayString(), symbol.GetKindName(), items));
+            groups.Add(new Models.SymbolMatchGroup<IReadOnlyList<Models.ReferenceResult>>(symbol.ToDisplayString(), symbol.GetKindName(), items));
         }
 
         return groups;
     }
 
-    private async Task<object> HandleDefinitionAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.DefinitionResult>>> HandleDefinitionAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -407,7 +408,7 @@ public sealed class DaemonServer : IAsyncDisposable
             var targets = await SymbolResolver.ResolveTargetsAsync(solution, symbol, file, line, col, ct);
             var solutionDir = GetSolutionDir(solution);
             return targets
-                .Select(s => new Models.SymbolMatchGroup(
+                .Select(s => new Models.SymbolMatchGroup<Models.DefinitionResult>(
                     s.ToDisplayString(),
                     s.GetKindName(),
                     DotnetAICraft.Commands.Definition.OutputMapping.Map(s, solutionDir)))
@@ -419,7 +420,7 @@ public sealed class DaemonServer : IAsyncDisposable
         }
     }
 
-    private async Task<object> HandleDescribeAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.DescribeCard>>> HandleDescribeAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -440,7 +441,7 @@ public sealed class DaemonServer : IAsyncDisposable
         }
     }
 
-    private async Task<object> HandleOutlineAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.OutlineResult>>> HandleOutlineAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -462,7 +463,7 @@ public sealed class DaemonServer : IAsyncDisposable
     }
 
     /// <summary>Testable outline resolution — returns one match group per resolved container.</summary>
-    public static async Task<IReadOnlyList<Models.SymbolMatchGroup>> ResolveOutlineAsync(
+    public static async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.OutlineResult>>> ResolveOutlineAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -481,7 +482,7 @@ public sealed class DaemonServer : IAsyncDisposable
         }
     }
 
-    private async Task<object> HandleSourceAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.SourceResult>>> HandleSourceAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -503,7 +504,7 @@ public sealed class DaemonServer : IAsyncDisposable
     }
 
     /// <summary>Testable source resolution — returns one match group per resolved symbol.</summary>
-    public static async Task<IReadOnlyList<Models.SymbolMatchGroup>> ResolveSourceAsync(
+    public static async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.SourceResult>>> ResolveSourceAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -522,7 +523,7 @@ public sealed class DaemonServer : IAsyncDisposable
     }
 
     /// <summary>Testable describe resolution — returns one match group per resolved symbol.</summary>
-    public static async Task<IReadOnlyList<Models.SymbolMatchGroup>> ResolveDescribeAsync(
+    public static async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.DescribeCard>>> ResolveDescribeAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -540,7 +541,7 @@ public sealed class DaemonServer : IAsyncDisposable
         }
     }
 
-    private async Task<object> HandleRenameAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<Models.RenameResult> HandleRenameAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -586,7 +587,7 @@ public sealed class DaemonServer : IAsyncDisposable
         return result;
     }
 
-    private async Task<object> HandleImplsAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<IReadOnlyList<Models.SymbolResult>>>> HandleImplsAsync(DaemonRequest req, CancellationToken ct)
     {
         var p        = GetParams(req);
         var solution = GetSolution();
@@ -597,7 +598,7 @@ public sealed class DaemonServer : IAsyncDisposable
             ct);
     }
 
-    private async Task<object> HandleCallersAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.CallGraphResult>>> HandleCallersAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -613,7 +614,7 @@ public sealed class DaemonServer : IAsyncDisposable
             ct);
     }
 
-    private async Task<object> HandleHierarchyAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.SymbolMatchGroup<Models.HierarchyNode>>> HandleHierarchyAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
         var solution = GetSolution();
@@ -631,7 +632,7 @@ public sealed class DaemonServer : IAsyncDisposable
     }
 
 
-    private async Task<object> HandleSymbolsAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<Models.SymbolsResultPage> HandleSymbolsAsync(DaemonRequest req, CancellationToken ct)
     {
         var p       = GetParams(req);
         var pattern = p.TryGetValue("pattern", out var pat) ? pat?.ToString() ?? "*" : "*";
@@ -648,7 +649,7 @@ public sealed class DaemonServer : IAsyncDisposable
             ct);
     }
 
-    private async Task<object> HandleDiagnosticsAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<IReadOnlyList<Models.DiagnosticResult>> HandleDiagnosticsAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
 
@@ -660,7 +661,7 @@ public sealed class DaemonServer : IAsyncDisposable
             ct);
     }
 
-    private async Task<object> HandleUnusedAsync(DaemonRequest req, CancellationToken ct)
+    private async Task<Models.UnusedScanSummary> HandleUnusedAsync(DaemonRequest req, CancellationToken ct)
     {
         var p = GetParams(req);
 
@@ -673,7 +674,7 @@ public sealed class DaemonServer : IAsyncDisposable
             ct);
     }
 
-    private object HandleStatus()
+    private Models.DaemonStatus HandleStatus()
     {
         var loadState = _loadState;
         var lastLoadAttemptAt = _lastLoadAttemptAt;
@@ -703,7 +704,7 @@ public sealed class DaemonServer : IAsyncDisposable
             LastLoadErrorMessage: lastLoadError?.Message);
     }
 
-    private object HandleReload()
+    private Models.DaemonReloadResult HandleReload()
     {
         // Hand the reload off to a background task and acknowledge immediately,
         // mirroring the cold-start accept-then-load path. Blocking this single
@@ -719,15 +720,13 @@ public sealed class DaemonServer : IAsyncDisposable
         // build, so re-reading would race and under-report the reload as not
         // pending. The reload contract is that it transitions to Loading.
         var ackLoadState = StartBackgroundLoad();
-        return new
-        {
-            reloaded = true,
-            loadState = ackLoadState.ToString().ToLowerInvariant(),
-            loadedAt = _loadedAt,
-            lastLoadAttemptAt = _lastLoadAttemptAt,
-            lastLoadErrorCode = _lastLoadError?.Code,
-            lastLoadErrorMessage = _lastLoadError?.Message
-        };
+        return new Models.DaemonReloadResult(
+            Reloaded: true,
+            LoadState: ackLoadState.ToString().ToLowerInvariant(),
+            LoadedAt: _loadedAt,
+            LastLoadAttemptAt: _lastLoadAttemptAt,
+            LastLoadErrorCode: _lastLoadError?.Code,
+            LastLoadErrorMessage: _lastLoadError?.Message);
     }
 
     // Starts an accept-then-load on a background task. Chains after any in-flight
@@ -766,13 +765,13 @@ public sealed class DaemonServer : IAsyncDisposable
             return _backgroundLoadTask;
     }
 
-    private object HandleShutdown()
+    private Models.DaemonShutdownResult HandleShutdown()
     {
         BeginShutdown();
-        return new { shutdownInitiated = true };
+        return new Models.DaemonShutdownResult(true);
     }
 
-    private object HandleSetIdleTimeout(DaemonRequest req)
+    private Models.IdleTimeoutUpdateResult HandleSetIdleTimeout(DaemonRequest req)
     {
         var p = GetParams(req);
         if (!p.TryGetValue("value", out var rawObj) || rawObj is null)

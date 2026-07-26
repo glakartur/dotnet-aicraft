@@ -11,10 +11,10 @@ public record ReferenceResult(
 /// definition). A fully-qualified name without a parameter signature can match several overloads,
 /// so refs/impls/callers/definition always return a list of these groups — one per matched symbol.
 /// </summary>
-public record SymbolMatchGroup(
+public record SymbolMatchGroup<T>(
     string Symbol,
     string Kind,
-    object Result);
+    T Result);
 
 public record CallerResult(
     string CallerSymbol,
@@ -193,6 +193,22 @@ public record DaemonStatus(
     string? LastLoadErrorCode,
     string? LastLoadErrorMessage);
 
+public record DaemonShutdownResult(bool ShutdownInitiated);
+
+public record DaemonReloadResult(
+    bool Reloaded,
+    string LoadState,
+    DateTime LoadedAt,
+    DateTime? LastLoadAttemptAt,
+    string? LastLoadErrorCode,
+    string? LastLoadErrorMessage);
+
+public record ServerStatusResult(
+    bool Running,
+    string SolutionPath,
+    DaemonStatus? Status = null,
+    ErrorInfo? Error = null);
+
 public record DiagnosticResult(
     string Project,
     string Id,
@@ -239,28 +255,34 @@ public record PageRequest(
     int Offset,
     int Limit);
 
-public record DaemonResponse(
+public record DaemonResponse<T>(
     string Id,
     DaemonResponseStatus Status,
-    object? Result = null,
+    T? Result = default,
     ErrorInfo? Error = null,
     object? Debug = null,
     PageResponse? Page = null,
     ResponseMeta? Meta = null)
 {
     public ErrorInfo? ValidateContract(string? command = null)
+        => DaemonResponseContract.Validate(Status, Error, command);
+}
+
+internal static class DaemonResponseContract
+{
+    internal static ErrorInfo? Validate(DaemonResponseStatus status, ErrorInfo? error, string? command = null)
     {
-        if (!Enum.IsDefined(Status) || Status == DaemonResponseStatus.NotSet)
+        if (!Enum.IsDefined(status) || status == DaemonResponseStatus.NotSet)
         {
             return new ErrorInfo(
                 "DAEMON_RESPONSE_INVALID_STATUS",
                 "Daemon returned unsupported status value.",
-                new { command, status = Status.ToString().ToLowerInvariant() });
+                new { command, status = status.ToString().ToLowerInvariant() });
         }
 
-        if (Status == DaemonResponseStatus.Ok)
+        if (status == DaemonResponseStatus.Ok)
         {
-            if (Error is not null)
+            if (error is not null)
             {
                 return new ErrorInfo(
                     "DAEMON_RESPONSE_CONTRACT_VIOLATION",
@@ -271,12 +293,12 @@ public record DaemonResponse(
             return null;
         }
 
-        if (Error is null)
+        if (error is null)
         {
             return new ErrorInfo(
                 "DAEMON_RESPONSE_CONTRACT_VIOLATION",
                 "Daemon returned non-ok status without error payload.",
-                new { command, status = Status.ToString().ToLowerInvariant() });
+                new { command, status = status.ToString().ToLowerInvariant() });
         }
 
         return null;

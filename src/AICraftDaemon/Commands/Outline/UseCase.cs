@@ -6,7 +6,7 @@ namespace DotnetAICraft.Commands.Outline;
 
 internal static class UseCase
 {
-    internal static async Task<IReadOnlyList<SymbolMatchGroup>> ResolveAsync(
+    internal static async Task<IReadOnlyList<SymbolMatchGroup<OutlineResult>>> ResolveAsync(
         Solution solution,
         string? symbol,
         string? file,
@@ -40,7 +40,7 @@ internal static class UseCase
 
         var solutionDir = Path.GetDirectoryName(solution.FilePath) ?? string.Empty;
         return containers
-            .Select(c => new SymbolMatchGroup(
+            .Select(c => new SymbolMatchGroup<OutlineResult>(
                 c.ToDisplayString(),
                 c.GetKindName(),
                 OutputMapping.Map(c, solutionDir, publicOnly, includeInherited)))

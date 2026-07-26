@@ -213,7 +213,7 @@ public class DescribeResolutionTests
         Assert.Contains("symbols", ex.Error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static DescribeCard Card(SymbolMatchGroup group) => (DescribeCard)group.Result;
+    private static DescribeCard Card(SymbolMatchGroup<DescribeCard> group) => group.Result;
 
     private const string FilePath = "/virtual/Sample.cs";
 

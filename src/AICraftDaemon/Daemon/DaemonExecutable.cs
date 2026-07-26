@@ -201,7 +201,7 @@ public static class DaemonExecutable
 
             await using (client)
             {
-                var response = await client.SendAsync(daemonCommand, requestParams, idleTimeoutMinutes: idleTimeoutMinutes);
+                var response = await client.SendAsync<object?>(daemonCommand, requestParams, idleTimeoutMinutes: idleTimeoutMinutes);
                 JsonOutput.Write(response);
             }
         });

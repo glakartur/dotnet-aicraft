@@ -20,7 +20,7 @@ public sealed class DaemonRetryOnTransportFailureTests
         DaemonClient? firstClient = null;
         DaemonClient? secondClient = null;
 
-        var result = await CommandHelpers.SendWithRetryCoreAsync(
+        var result = await CommandHelpers.SendWithRetryCoreAsync<object?>(
             connect: async () =>
             {
                 var c = (await DaemonClient.TryConnectAsync(listener.SolutionPath))!;
@@ -37,7 +37,7 @@ public sealed class DaemonRetryOnTransportFailureTests
                 }
 
                 secondClient = clientsObtained[^1];
-                return Task.FromResult(new DaemonResponse(
+                return Task.FromResult(new DaemonResponse<object?>(
                     Id: "1",
                     Status: DaemonResponseStatus.Ok,
                     Result: new { ok = true }));
@@ -61,7 +61,7 @@ public sealed class DaemonRetryOnTransportFailureTests
         var restartNotices = 0;
         var connectCalls = 0;
 
-        var result = await CommandHelpers.SendWithRetryCoreAsync(
+        var result = await CommandHelpers.SendWithRetryCoreAsync<object?>(
             connect: async () =>
             {
                 connectCalls++;
@@ -89,7 +89,7 @@ public sealed class DaemonRetryOnTransportFailureTests
         var sendAttempts = 0;
         var restartNotices = 0;
 
-        var result = await CommandHelpers.SendWithRetryCoreAsync(
+        var result = await CommandHelpers.SendWithRetryCoreAsync<object?>(
             connect: async () => (await DaemonClient.TryConnectAsync(listener.SolutionPath))!,
             send: _ =>
             {
@@ -113,7 +113,7 @@ public sealed class DaemonRetryOnTransportFailureTests
         var connectCalls = 0;
         var restartNotices = 0;
 
-        var result = await CommandHelpers.SendWithRetryCoreAsync(
+        var result = await CommandHelpers.SendWithRetryCoreAsync<object?>(
             connect: async () =>
             {
                 connectCalls++;
@@ -144,12 +144,12 @@ public sealed class DaemonRetryOnTransportFailureTests
         var sendAttempts = 0;
         var restartNotices = 0;
 
-        var result = await CommandHelpers.SendWithRetryCoreAsync(
+        var result = await CommandHelpers.SendWithRetryCoreAsync<object?>(
             connect: async () => (await DaemonClient.TryConnectAsync(listener.SolutionPath))!,
             send: _ =>
             {
                 sendAttempts++;
-                return Task.FromResult(new DaemonResponse(
+                return Task.FromResult(new DaemonResponse<object?>(
                     Id: "1",
                     Status: DaemonResponseStatus.Ok,
                     Result: new { ok = true }));
@@ -170,7 +170,7 @@ public sealed class DaemonRetryOnTransportFailureTests
         var sendAttempts = 0;
         var restartNotices = 0;
 
-        var result = await CommandHelpers.SendWithRetryCoreAsync(
+        var result = await CommandHelpers.SendWithRetryCoreAsync<object?>(
             connect: async () => (await DaemonClient.TryConnectAsync(listener.SolutionPath))!,
             send: _ =>
             {

@@ -26,7 +26,7 @@ public sealed class DaemonTransportFailureTests
             await fake.StopAcceptingAsync();
 
             var ex = await Assert.ThrowsAsync<DaemonTransportException>(
-                () => client!.SendAsync("symbols"));
+                () => client!.SendAsync<object?>("symbols"));
 
             Assert.Equal("DAEMON_TRANSPORT_FAILED", ex.Error.Code);
             using var details = JsonDocument.Parse(JsonSerializer.Serialize(ex.Error.Details));
@@ -57,7 +57,7 @@ public sealed class DaemonTransportFailureTests
 
             // EOF read returns null → existing validation-style envelope; not a transport fault.
             var ex = await Assert.ThrowsAsync<DaemonClientValidationException>(
-                () => client!.SendAsync("symbols"));
+                () => client!.SendAsync<object?>("symbols"));
 
             Assert.Equal("DAEMON_RESPONSE_INCOMPLETE", ex.Error.Code);
         }
@@ -83,7 +83,7 @@ public sealed class DaemonTransportFailureTests
             client = await DaemonClient.TryConnectAsync(solutionPath);
             Assert.NotNull(client);
 
-            var response = await client!.SendAsync("symbols");
+            var response = await client!.SendAsync<object?>("symbols");
             Assert.Equal(DaemonResponseStatus.Error, response.Status);
             Assert.NotNull(response.Error);
             Assert.Equal("INVALID_PARAMS", response.Error!.Code);
@@ -210,7 +210,7 @@ public sealed class DaemonTransportFailureTests
                             : string.Empty;
                     }
 
-                    var response = new DaemonResponse(
+                    var response = new DaemonResponse<object?>(
                         Id: id,
                         Status: DaemonResponseStatus.Error,
                         Error: new ErrorInfo("INVALID_PARAMS", "fake invalid params"));

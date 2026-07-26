@@ -40,7 +40,7 @@ public class DaemonResponseCompletionTests
     public void ParseResponseOrThrow_WhenJsonInvalid_ThrowsInvalidJsonValidationError()
     {
         var ex = Assert.Throws<DaemonClientValidationException>(() =>
-            DaemonClient.ParseResponseOrThrow("not-json", "symbols"));
+            DaemonClient.ParseResponseOrThrow<object?>("not-json", "symbols"));
 
         Assert.Equal("DAEMON_RESPONSE_INVALID_JSON", ex.Error.Code);
     }
@@ -51,7 +51,7 @@ public class DaemonResponseCompletionTests
         const string legacyJson = "{\"id\":\"req\",\"data\":[],\"error\":null}";
 
         var ex = Assert.Throws<DaemonClientValidationException>(() =>
-            DaemonClient.ParseResponseOrThrow(legacyJson, "symbols"));
+            DaemonClient.ParseResponseOrThrow<object?>(legacyJson, "symbols"));
 
         Assert.Equal("DAEMON_PROTOCOL_MISMATCH", ex.Error.Code);
     }
@@ -62,7 +62,7 @@ public class DaemonResponseCompletionTests
         const string nullStatusJson = "{\"id\":\"req\",\"status\":null,\"error\":{\"code\":\"X\",\"message\":\"m\"}}";
 
         var ex = Assert.Throws<DaemonClientValidationException>(() =>
-            DaemonClient.ParseResponseOrThrow(nullStatusJson, "symbols"));
+            DaemonClient.ParseResponseOrThrow<object?>(nullStatusJson, "symbols"));
 
         Assert.Equal("DAEMON_RESPONSE_INVALID_STATUS", ex.Error.Code);
     }
@@ -73,7 +73,7 @@ public class DaemonResponseCompletionTests
         const string invalidStatusJson = "{\"id\":\"req\",\"status\":\"unknown\",\"error\":{\"code\":\"X\",\"message\":\"m\"}}";
 
         var ex = Assert.Throws<DaemonClientValidationException>(() =>
-            DaemonClient.ParseResponseOrThrow(invalidStatusJson, "symbols"));
+            DaemonClient.ParseResponseOrThrow<object?>(invalidStatusJson, "symbols"));
 
         Assert.Equal("DAEMON_RESPONSE_INVALID_STATUS", ex.Error.Code);
     }
@@ -81,7 +81,7 @@ public class DaemonResponseCompletionTests
     [Fact]
     public void ParseResponseOrThrow_WhenOkWithError_ThrowsContractViolation()
     {
-        var invalid = new DaemonResponse(
+        var invalid = new DaemonResponse<object?>(
             Id: "req",
             Status: DaemonResponseStatus.Ok,
             Result: new[] { "x" },
@@ -92,7 +92,7 @@ public class DaemonResponseCompletionTests
         var json = DotnetAICraft.Output.JsonOutput.Serialize(invalid);
 
         var ex = Assert.Throws<DaemonClientValidationException>(() =>
-            DaemonClient.ParseResponseOrThrow(json, "symbols"));
+            DaemonClient.ParseResponseOrThrow<object?>(json, "symbols"));
 
         Assert.Equal("DAEMON_RESPONSE_CONTRACT_VIOLATION", ex.Error.Code);
     }
@@ -100,7 +100,7 @@ public class DaemonResponseCompletionTests
     [Fact]
     public void ParseResponseOrThrow_WhenProblemWithoutError_ThrowsContractViolation()
     {
-        var invalid = new DaemonResponse(
+        var invalid = new DaemonResponse<object?>(
             Id: "req",
             Status: DaemonResponseStatus.Problem,
             Result: null,
@@ -111,7 +111,7 @@ public class DaemonResponseCompletionTests
         var json = DotnetAICraft.Output.JsonOutput.Serialize(invalid);
 
         var ex = Assert.Throws<DaemonClientValidationException>(() =>
-            DaemonClient.ParseResponseOrThrow(json, "symbols"));
+            DaemonClient.ParseResponseOrThrow<object?>(json, "symbols"));
 
         Assert.Equal("DAEMON_RESPONSE_CONTRACT_VIOLATION", ex.Error.Code);
     }

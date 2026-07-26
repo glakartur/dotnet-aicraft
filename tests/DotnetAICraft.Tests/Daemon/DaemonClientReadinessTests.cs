@@ -89,7 +89,7 @@ public sealed class DaemonClientReadinessTests
             // The returned client is the reserved, never-spent connection: its
             // first real request must succeed (regression guard against returning
             // a connection already consumed by a status poll).
-            var response = await client.SendAsync("status");
+            var response = await client.SendAsync<DaemonStatus>("status");
             Assert.Equal(DaemonResponseStatus.Ok, response.Status);
         }
     }
@@ -162,15 +162,17 @@ public sealed class DaemonClientReadinessTests
     private sealed class FakeStatusDaemon : IAsyncDisposable
     {
         private readonly Socket _listener;
+        private readonly string _solutionPath;
         private readonly string _socketPath;
         private readonly StatusReply[] _replies;
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _acceptLoop;
         private int _requestIndex = -1;
 
-        private FakeStatusDaemon(Socket listener, string socketPath, StatusReply[] replies)
+        private FakeStatusDaemon(Socket listener, string solutionPath, string socketPath, StatusReply[] replies)
         {
             _listener = listener;
+            _solutionPath = solutionPath;
             _socketPath = socketPath;
             _replies = replies;
             _acceptLoop = Task.Run(AcceptLoopAsync);
@@ -189,7 +191,7 @@ public sealed class DaemonClientReadinessTests
             var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             socket.Bind(new UnixDomainSocketEndPoint(socketPath));
             socket.Listen(16);
-            return Task.FromResult(new FakeStatusDaemon(socket, socketPath, replies));
+            return Task.FromResult(new FakeStatusDaemon(socket, solutionPath, socketPath, replies));
         }
 
         private async Task AcceptLoopAsync()
@@ -238,16 +240,20 @@ public sealed class DaemonClientReadinessTests
                 var index = Interlocked.Increment(ref _requestIndex);
                 var reply = _replies[Math.Min(index, _replies.Length - 1)];
 
-                var response = new DaemonResponse(
+                var response = new DaemonResponse<DaemonStatus>(
                     Id: Guid.NewGuid().ToString("N"),
                     Status: DaemonResponseStatus.Ok,
-                    Result: new
-                    {
-                        running = true,
-                        loadState = reply.LoadState,
-                        lastLoadErrorCode = reply.ErrorCode,
-                        lastLoadErrorMessage = reply.ErrorMessage
-                    });
+                    Result: new DaemonStatus(
+                        Running: true,
+                        SolutionPath: _solutionPath,
+                        Projects: 0,
+                        Documents: 0,
+                        LoadedAt: DateTime.UtcNow,
+                        Uptime: TimeSpan.Zero,
+                        LoadState: reply.LoadState,
+                        LastLoadAttemptAt: null,
+                        LastLoadErrorCode: reply.ErrorCode,
+                        LastLoadErrorMessage: reply.ErrorMessage));
 
                 await writer.WriteLineAsync(JsonOutput.Serialize(response).AsMemory(), _cts.Token);
             }

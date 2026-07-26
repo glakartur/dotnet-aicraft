@@ -1,15 +1,15 @@
-using DotnetAICraft.Daemon;
+using DotnetAICraft.Models;
 using Microsoft.CodeAnalysis;
 
 namespace DotnetAICraft.Commands.Callers;
 
 internal static class OutputMapping
 {
-    internal static async Task<object> MapAsync(
+    internal static Task<CallGraphResult> MapAsync(
         Solution solution,
         ISymbol symbol,
         string normalizedDirection,
         int normalizedDepth,
         CancellationToken ct)
-        => await DaemonServer.CollectCallGraphAsync(solution, symbol, normalizedDirection, normalizedDepth, ct);
+        => Daemon.DaemonServer.CollectCallGraphAsync(solution, symbol, normalizedDirection, normalizedDepth, ct);
 }

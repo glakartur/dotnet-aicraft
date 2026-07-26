@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Diagnostics;
 using DotnetAICraft.Models;
@@ -33,7 +32,7 @@ internal static class Entry
             return;
         }
 
-        var res = await CommandHelpers.SendWithRetryOrWriteErrorAsync(
+        var res = await CommandHelpers.SendWithRetryOrWriteErrorAsync<IReadOnlyList<SymbolResult>>(
             solutionPath,
             CommandName,
             new
@@ -55,16 +54,14 @@ internal static class Entry
         var solutionDir = Path.GetDirectoryName(solutionPath) ?? string.Empty;
         if (format == OutputFormat.Json)
         {
-            var items = JsonOutput.Deserialize<IReadOnlyList<SymbolResult>>((JsonElement)res.Result!)
-                ?? Array.Empty<SymbolResult>();
+            var items = res.Result ?? Array.Empty<SymbolResult>();
             var hasMore = res.Page?.HasMore ?? false;
             JsonOutput.WriteWithSolutionRoot(solutionDir, new SymbolsResultPage(items, hasMore));
         }
         else
         {
             TextOutput.WriteSolutionRootHeader(solutionDir);
-            var items = JsonOutput.Deserialize<IReadOnlyList<SymbolResult>>((JsonElement)res.Result!)
-                ?? Array.Empty<SymbolResult>();
+            var items = res.Result ?? Array.Empty<SymbolResult>();
             var hasMore = res.Page?.HasMore ?? false;
             TextOutput.WriteSymbols(new SymbolsResultPage(items, hasMore), pattern, solutionPath);
         }

@@ -164,7 +164,7 @@ public class DaemonTimeoutOptionTests
         // Act
         using (var capture = ConsoleOutputCapture.Start())
         {
-            var response = await CommandHelpers.SendOrWriteValidationErrorAsync(() =>
+            var response = await CommandHelpers.SendOrWriteValidationErrorAsync<object?>(() =>
                 throw new DaemonClientValidationException(
                     new DotnetAICraft.Models.ErrorInfo(
                         "DAEMON_RESPONSE_TIMEOUT",

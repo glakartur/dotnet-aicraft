@@ -38,7 +38,7 @@ public sealed class DaemonExecutableTests
         await using var daemon = await SingleResponseDaemon.StartAsync(solutionPath, request =>
         {
             Assert.Equal("status", request.Command);
-            return new DaemonResponse(
+            return new DaemonResponse<object?>(
                 Id: request.Id,
                 Status: DaemonResponseStatus.Ok,
                 Result: new { running = true, solutionPath = "/tmp/fake.sln" });
@@ -67,11 +67,11 @@ public sealed class DaemonExecutableTests
     {
         private readonly Socket _listener;
         private readonly string _socketPath;
-        private readonly Func<DaemonRequest, DaemonResponse> _handleRequest;
+        private readonly Func<DaemonRequest, DaemonResponse<object?>> _handleRequest;
         private readonly CancellationTokenSource _cts = new();
         private readonly Task _acceptLoop;
 
-        private SingleResponseDaemon(Socket listener, string socketPath, Func<DaemonRequest, DaemonResponse> handleRequest)
+        private SingleResponseDaemon(Socket listener, string socketPath, Func<DaemonRequest, DaemonResponse<object?>> handleRequest)
         {
             _listener = listener;
             _socketPath = socketPath;
@@ -79,7 +79,7 @@ public sealed class DaemonExecutableTests
             _acceptLoop = Task.Run(AcceptLoopAsync);
         }
 
-        public static Task<SingleResponseDaemon> StartAsync(string solutionPath, Func<DaemonRequest, DaemonResponse> handleRequest)
+        public static Task<SingleResponseDaemon> StartAsync(string solutionPath, Func<DaemonRequest, DaemonResponse<object?>> handleRequest)
         {
             var socketPath = DaemonClient.GetSocketPath(solutionPath);
             Directory.CreateDirectory(Path.GetDirectoryName(socketPath)!);
