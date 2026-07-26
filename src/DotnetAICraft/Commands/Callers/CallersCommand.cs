@@ -1,5 +1,4 @@
 using System.CommandLine;
-using DotnetAICraft.Daemon;
 using DotnetAICraft.Commands.Callers;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Output;
@@ -22,14 +21,14 @@ public static class CallersCommand
 
         var directionOpt = new Option<string>("--direction")
         {
-            Description = $"Call graph direction: {DaemonServer.CallGraphDirectionAcceptedValues}",
-            DefaultValueFactory = _ => DaemonServer.CallGraphDefaultDirection
+            Description = $"Call graph direction: {AnalysisCommandMetadata.CallGraphDirectionAcceptedValues}",
+            DefaultValueFactory = _ => AnalysisCommandMetadata.CallGraphDefaultDirection
         };
 
         var depthOpt = new Option<int>("--depth")
         {
-            Description = $"Call graph traversal depth (min: 1, default: {DaemonServer.CallGraphDefaultDepth})",
-            DefaultValueFactory = _ => DaemonServer.CallGraphDefaultDepth
+            Description = $"Call graph traversal depth (min: 1, default: {AnalysisCommandMetadata.CallGraphDefaultDepth})",
+            DefaultValueFactory = _ => AnalysisCommandMetadata.CallGraphDefaultDepth
         };
 
         var cmd = new Command("callers", "Find method callers or callees (call graph)")
@@ -79,10 +78,5 @@ public static class CallersCommand
         });
 
         return cmd;
-    }
-
-    private static void ValidateArgs(FileInfo? file, int? line, int? col, string? symbol)
-    {
-        Validation.ValidateCliModeArgs(file, line, col, symbol);
     }
 }

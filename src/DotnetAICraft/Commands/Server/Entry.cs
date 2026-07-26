@@ -20,19 +20,6 @@ internal static class Entry
             OutputMapping.WriteError(startError, format);
     }
 
-    internal static async Task DaemonAsync(string solutionPath, string? idleTimeout, OutputFormat format = OutputFormat.Text)
-    {
-        if (!Validation.TryParseIdleTimeout(idleTimeout, out var timeout, out var error))
-        {
-            OutputMapping.WriteError(error, format);
-            return;
-        }
-
-        var startError = await UseCase.DaemonAsync(solutionPath, timeout);
-        if (startError is not null)
-            OutputMapping.WriteError(startError, format);
-    }
-
     internal static async Task StopAsync(string solutionPath, OutputFormat format = OutputFormat.Text)
     {
         var (result, error) = await UseCase.StopAsync(solutionPath);

@@ -1,5 +1,7 @@
 using DotnetAICraft.Commands.Hierarchy;
 using DotnetAICraft.Daemon;
+using DotnetAICraft.Models;
+using HierarchyValidation = DotnetAICraft.Commands.Hierarchy.CliValidation;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Host.Mef;
@@ -17,8 +19,14 @@ public class HierarchyValidationTests
     [InlineData(" Up", true, "up")]
     public void TryParseDirection_AcceptsUpDownCaseInsensitive(string? input, bool expectedOk, string expectedNormalized)
     {
-        var ok = Validation.TryParseDirection(input, out var normalized, out var error);
+        // Arrange
+        ErrorInfo? error;
+        string? normalized;
 
+        // Act
+        var ok = HierarchyValidation.TryParseDirection(input, out normalized, out error);
+
+        // Assert
         Assert.Equal(expectedOk, ok);
         Assert.Equal(expectedNormalized, normalized);
         Assert.Null(error);
@@ -31,8 +39,13 @@ public class HierarchyValidationTests
     [InlineData("incoming")]
     public void TryParseDirection_RejectsInvalid_WithAcceptedValuesDetail(string? input)
     {
-        var ok = Validation.TryParseDirection(input, out _, out var error);
+        // Arrange
+        ErrorInfo? error;
 
+        // Act
+        var ok = HierarchyValidation.TryParseDirection(input, out _, out error);
+
+        // Assert
         Assert.False(ok);
         Assert.NotNull(error);
         Assert.Equal("INVALID_PARAMS", error!.Code);
@@ -41,13 +54,19 @@ public class HierarchyValidationTests
     }
 
     [Theory]
-    [InlineData(null, true, Validation.UnboundedMaxDepth)]
+    [InlineData(null, true, HierarchyValidation.UnboundedMaxDepth)]
     [InlineData(1, true, 1)]
     [InlineData(5, true, 5)]
     public void TryNormalizeMaxDepth_AcceptsNullAndPositive(int? input, bool expectedOk, int expectedNormalized)
     {
-        var ok = Validation.TryNormalizeMaxDepth(input, out var normalized, out var error);
+        // Arrange
+        ErrorInfo? error;
+        int normalized;
 
+        // Act
+        var ok = HierarchyValidation.TryNormalizeMaxDepth(input, out normalized, out error);
+
+        // Assert
         Assert.Equal(expectedOk, ok);
         Assert.Equal(expectedNormalized, normalized);
         Assert.Null(error);
@@ -58,8 +77,13 @@ public class HierarchyValidationTests
     [InlineData(-3)]
     public void TryNormalizeMaxDepth_RejectsBelowOne(int input)
     {
-        var ok = Validation.TryNormalizeMaxDepth(input, out _, out var error);
+        // Arrange
+        ErrorInfo? error;
 
+        // Act
+        var ok = HierarchyValidation.TryNormalizeMaxDepth(input, out _, out error);
+
+        // Assert
         Assert.False(ok);
         Assert.NotNull(error);
         Assert.Equal("INVALID_PARAMS", error!.Code);
@@ -74,16 +98,22 @@ public class HierarchyValidationTests
     [InlineData("Demo.Handler", false)] // delegate
     public async Task EnsureTargetKind_AcceptsTypesRejectsOthers(string fullName, bool accepted)
     {
+        // Arrange
         var symbol = await ResolveTypeAsync(fullName);
+        INamedTypeSymbol? named = null;
 
+        // Act
+        var exception = Record.Exception(() => named = HierarchyTargetValidation.EnsureTargetKind(symbol));
+
+        // Assert
         if (accepted)
         {
-            var named = Validation.EnsureTargetKind(symbol);
+            Assert.Null(exception);
             Assert.NotNull(named);
         }
         else
         {
-            var ex = Assert.Throws<DaemonValidationException>(() => Validation.EnsureTargetKind(symbol));
+            var ex = Assert.IsType<DaemonValidationException>(exception);
             Assert.Equal("INVALID_TARGET_KIND", ex.Error.Code);
         }
     }
@@ -91,11 +121,15 @@ public class HierarchyValidationTests
     [Fact]
     public async Task EnsureTargetKind_RejectsMethod()
     {
+        // Arrange
         var compilation = await CompileAsync();
         var beast = compilation.GetTypeByMetadataName("Demo.Beast")!;
         var method = beast.GetMembers("Roar").Single();
 
-        var ex = Assert.Throws<DaemonValidationException>(() => Validation.EnsureTargetKind(method));
+        // Act
+        var ex = Assert.Throws<DaemonValidationException>(() => HierarchyTargetValidation.EnsureTargetKind(method));
+
+        // Assert
         Assert.Equal("INVALID_TARGET_KIND", ex.Error.Code);
     }
 

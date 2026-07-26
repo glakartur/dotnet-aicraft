@@ -1,6 +1,6 @@
 using System.CommandLine;
 using DotnetAICraft.Commands;
-using DotnetAICraft.Daemon;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Output;
 using Xunit;
 
@@ -11,8 +11,16 @@ public class CallersCommandTests
     [Fact]
     public void Build_ExposesDirectionAndDepthOptions()
     {
-        var command = CallersCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        // Arrange
+        var solutionOption = BuildSolutionOption();
+        var projectOption = BuildProjectOption();
+        var idleTimeoutOption = BuildIdleTimeoutOption();
+        var formatOption = BuildFormatOption();
 
+        // Act
+        var command = CallersCommand.Build(solutionOption, projectOption, idleTimeoutOption, formatOption: formatOption);
+
+        // Assert
         Assert.Equal("callers", command.Name);
         AssertContainsOption(command, "--solution");
         AssertContainsOption(command, "--file");
@@ -31,34 +39,38 @@ public class CallersCommandTests
     [Fact]
     public void Parse_UsesDefaultDirectionAndDepth()
     {
+        // Arrange
         var command = CallersCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        var directionOption = GetOption<string>(command, "--direction");
+        var depthOption = GetOption<int>(command, "--depth");
 
+        // Act
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
             "--symbol", "Demo.CallGraphSample.C"]);
 
-        var directionOption = GetOption<string>(command, "--direction");
-        var depthOption = GetOption<int>(command, "--depth");
-
+        // Assert
         Assert.Empty(parseResult.Errors);
-        Assert.Equal(DaemonServer.CallGraphDefaultDirection, parseResult.GetValue(directionOption));
-        Assert.Equal(DaemonServer.CallGraphDefaultDepth, parseResult.GetValue(depthOption));
+        Assert.Equal(AnalysisCommandMetadata.CallGraphDefaultDirection, parseResult.GetValue(directionOption));
+        Assert.Equal(AnalysisCommandMetadata.CallGraphDefaultDepth, parseResult.GetValue(depthOption));
     }
 
     [Fact]
     public void Parse_UsesProvidedDirectionAndDepth()
     {
+        // Arrange
         var command = CallersCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        var directionOption = GetOption<string>(command, "--direction");
+        var depthOption = GetOption<int>(command, "--depth");
 
+        // Act
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
             "--symbol", "Demo.CallGraphSample.C",
             "--direction", "both",
             "--depth", "3"]);
 
-        var directionOption = GetOption<string>(command, "--direction");
-        var depthOption = GetOption<int>(command, "--depth");
-
+        // Assert
         Assert.Empty(parseResult.Errors);
         Assert.Equal("both", parseResult.GetValue(directionOption));
         Assert.Equal(3, parseResult.GetValue(depthOption));

@@ -1,5 +1,4 @@
 using System.CommandLine;
-using DotnetAICraft.Daemon;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Commands.Unused;
 using DotnetAICraft.Output;
@@ -17,7 +16,7 @@ public static class UnusedCommand
     {
         var kindOpt = new Option<string>("--kind")
         {
-            Description = $"Symbol kind filter: {DaemonServer.UnusedKindAcceptedValues}",
+            Description = $"Symbol kind filter: {AnalysisCommandMetadata.UnusedKindAcceptedValues}",
             DefaultValueFactory = _ => "all"
         };
 

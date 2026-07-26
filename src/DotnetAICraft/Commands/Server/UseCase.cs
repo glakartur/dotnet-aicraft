@@ -41,24 +41,6 @@ internal static class UseCase
         return null;
     }
 
-    internal static async Task<ErrorInfo?> DaemonAsync(string solutionPath, DaemonIdleTimeoutSetting? timeout)
-    {
-        var decision = await DaemonStartupCoordinator.PrepareServerStartAsync(solutionPath);
-        if (decision.Type == DaemonServerStartDecisionType.AttachedExisting)
-        {
-            return null;
-        }
-
-        if (decision.Type == DaemonServerStartDecisionType.Failed)
-        {
-            return decision.Error ?? new ErrorInfo("DAEMON_STARTUP_FAILED", "Daemon startup failed.");
-        }
-
-        await using var server = new DaemonServer(solutionPath, timeout, decision.StartupLock);
-        await server.RunAsync();
-        return null;
-    }
-
     internal static async Task<(object? result, ErrorInfo? error)> StopAsync(string solutionPath)
     {
         var client = await DaemonClient.TryConnectAsync(solutionPath);

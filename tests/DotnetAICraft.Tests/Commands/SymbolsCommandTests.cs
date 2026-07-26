@@ -1,6 +1,6 @@
 using System.CommandLine;
 using DotnetAICraft.Commands;
-using DotnetAICraft.Daemon;
+using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Output;
 using Xunit;
 
@@ -11,31 +11,37 @@ public class SymbolsCommandTests
     [Fact]
     public void Build_ExposesPaginationOptionsWithDefaultValues()
     {
+        // Arrange
         var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption(), formatOption: BuildFormatOption());
+        var limitOption = GetOption<int>(command, "--limit");
+        var offsetOption = GetOption<int>(command, "--offset");
 
+        // Act
+        var parseResult = command.Parse([
+            "--solution", "/tmp/sample.sln",
+            "--pattern", "Pagination*"]);
+
+        // Assert
         Assert.Equal("symbols", command.Name);
         AssertContainsOption(command, "--limit");
         AssertContainsOption(command, "--offset");
         AssertContainsOption(command, "--format");
 
-        var parseResult = command.Parse([
-            "--solution", "/tmp/sample.sln",
-            "--pattern", "Pagination*"]);
-
-        var limitOption = GetOption<int>(command, "--limit");
-        var offsetOption = GetOption<int>(command, "--offset");
-
         Assert.Empty(parseResult.Errors);
-        Assert.Equal(DaemonServer.SymbolsDefaultLimit, parseResult.GetValue(limitOption));
-        Assert.Equal(DaemonServer.SymbolsDefaultOffset, parseResult.GetValue(offsetOption));
+        Assert.Equal(AnalysisCommandMetadata.SymbolsDefaultLimit, parseResult.GetValue(limitOption));
+        Assert.Equal(AnalysisCommandMetadata.SymbolsDefaultOffset, parseResult.GetValue(offsetOption));
     }
 
     [Fact]
     public void Build_KindOptionDescription_ListsGranularKinds()
     {
+        // Arrange
         var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+
+        // Act
         var kindOption = GetOption<string>(command, "--kind");
 
+        // Assert
         Assert.Contains("constructor", kindOption.Description, StringComparison.Ordinal);
         Assert.Contains("interface", kindOption.Description, StringComparison.Ordinal);
         Assert.Contains("event", kindOption.Description, StringComparison.Ordinal);
@@ -44,17 +50,19 @@ public class SymbolsCommandTests
     [Fact]
     public void Parse_UsesProvidedLimitAndOffsetValues()
     {
+        // Arrange
         var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        var limitOption = GetOption<int>(command, "--limit");
+        var offsetOption = GetOption<int>(command, "--offset");
 
+        // Act
         var parseResult = command.Parse([
             "--solution", "/tmp/sample.sln",
             "--pattern", "Pagination*",
             "--limit", "1",
             "--offset", "50"]);
 
-        var limitOption = GetOption<int>(command, "--limit");
-        var offsetOption = GetOption<int>(command, "--offset");
-
+        // Assert
         Assert.Empty(parseResult.Errors);
         Assert.Equal(1, parseResult.GetValue(limitOption));
         Assert.Equal(50, parseResult.GetValue(offsetOption));
@@ -63,26 +71,44 @@ public class SymbolsCommandTests
     [Fact]
     public void Parse_NoPathFlags_DoesNotError()
     {
+        // Arrange
         var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+
+        // Act
         var parseResult = command.Parse(["--pattern", "Foo*"]);
+
+        // Assert
         Assert.Empty(parseResult.Errors);
     }
 
     [Fact]
     public void Parse_BothSolutionAndProjectFlags_ParseSuccessfully()
     {
+        // Arrange
         var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+
+        // Act
         var parseResult = command.Parse([
             "--solution", "/tmp/a.sln",
             "--project", "/tmp/b.csproj",
             "--pattern", "Foo*"]);
+
+        // Assert
         Assert.Empty(parseResult.Errors);
     }
 
     [Fact]
     public void Build_ExposesProjectOptionAndAlias()
     {
-        var command = SymbolsCommand.Build(BuildSolutionOption(), BuildProjectOption(), BuildIdleTimeoutOption());
+        // Arrange
+        var solutionOption = BuildSolutionOption();
+        var projectOption = BuildProjectOption();
+        var idleTimeoutOption = BuildIdleTimeoutOption();
+
+        // Act
+        var command = SymbolsCommand.Build(solutionOption, projectOption, idleTimeoutOption);
+
+        // Assert
         AssertContainsOption(command, "--project");
         AssertContainsOption(command, "-p");
     }

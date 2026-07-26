@@ -1,10 +1,10 @@
 using System.CommandLine;
 using DotnetAICraft.Commands;
 using DotnetAICraft.Commands.Shared;
-using DotnetAICraft.Tests.Support;
-using ServerEntry = DotnetAICraft.Commands.Server.Entry;
-using SymbolsEntry = DotnetAICraft.Commands.Symbols.Entry;
 using DotnetAICraft.Daemon;
+using DotnetAICraft.Tests.Support;
+using ServerEntry = DotnetAICraft.Daemon.DaemonExecutable;
+using SymbolsEntry = DotnetAICraft.Commands.Symbols.Entry;
 using System.Text.Json;
 using Xunit;
 
@@ -18,20 +18,24 @@ public class DaemonTimeoutOptionTests
     [Fact]
     public void DaemonBackedCommands_ExposeIdleTimeoutAndDebugOptions()
     {
+        // Arrange
         var solutionOption = BuildSolutionOption();
+        var projectOption = BuildProjectOption();
         var idleTimeoutOption = BuildIdleTimeoutOption();
         var debugOption = BuildDebugOption();
 
-        var refs = RefsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var definition = DefinitionCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var rename = RenameCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var impls = ImplsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var callers = CallersCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var symbols = SymbolsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var unused = UnusedCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var diagnostics = DiagnosticsCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
-        var server = ServerCommand.Build(solutionOption, BuildProjectOption(), idleTimeoutOption, debugOption);
+        // Act
+        var refs = RefsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var definition = DefinitionCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var rename = RenameCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var impls = ImplsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var callers = CallersCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var symbols = SymbolsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var unused = UnusedCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var diagnostics = DiagnosticsCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
+        var server = ServerCommand.Build(solutionOption, projectOption, idleTimeoutOption, debugOption);
 
+        // Assert
         AssertContainsOption(refs, "--idle-timeout");
         AssertContainsOption(refs, "--debug");
         AssertContainsOption(definition, "--idle-timeout");
@@ -64,6 +68,7 @@ public class DaemonTimeoutOptionTests
     [Fact]
     public async Task ConnectOrWriteValidationErrorAsync_WithDirectorySocketArtifact_WritesInvalidTypeError()
     {
+        // Arrange
         var solutionPath = Path.Combine(Path.GetTempPath(), $"dotnet-aicraft-test-{Guid.NewGuid():N}.sln");
         var socketPath = DaemonClient.GetSocketPath(solutionPath);
         await SocketArtifactLock.WaitAsync();
@@ -76,12 +81,14 @@ public class DaemonTimeoutOptionTests
                 DaemonClient? client;
                 string output;
 
+                // Act
                 using (var capture = ConsoleOutputCapture.Start())
                 {
                     client = await CommandHelpers.ConnectOrWriteValidationErrorAsync(solutionPath, idleTimeout: null, format: DotnetAICraft.Output.OutputFormat.Json);
                     output = capture.GetOutput();
                 }
 
+                // Assert
                 Assert.Null(client);
                 Assert.False(string.IsNullOrWhiteSpace(output));
 
@@ -111,6 +118,7 @@ public class DaemonTimeoutOptionTests
     [Fact]
     public async Task ServerStartAndSymbolsFlow_WithDirectorySocketArtifact_ReturnSameInvalidTypeErrorContract()
     {
+        // Arrange
         var solutionPath = Path.Combine(Path.GetTempPath(), $"dotnet-aicraft-test-{Guid.NewGuid():N}.sln");
         var socketPath = DaemonClient.GetSocketPath(solutionPath);
         await SocketArtifactLock.WaitAsync();
@@ -120,7 +128,8 @@ public class DaemonTimeoutOptionTests
 
             try
             {
-                var serverJson = await CaptureJsonOutputAsync(() => ServerEntry.StartAsync(solutionPath, idleTimeout: null, format: DotnetAICraft.Output.OutputFormat.Json));
+                // Act
+                var serverJson = await CaptureJsonOutputAsync(() => ServerEntry.RunAsync(["daemon", "--solution", solutionPath, "--format", "json"], TextWriter.Null, TextWriter.Null));
                 var symbolsJson = await CaptureJsonOutputAsync(() => SymbolsEntry.ExecuteAsync(
                     solutionPath,
                     pattern: "Any*",
@@ -130,7 +139,8 @@ public class DaemonTimeoutOptionTests
                     idleTimeout: null,
                     format: DotnetAICraft.Output.OutputFormat.Json));
 
-                AssertMatchingInvalidTypeError(serverJson, expectedStage: "start");
+                // Assert
+                AssertMatchingInvalidTypeError(serverJson, expectedStage: "liveness");
                 AssertMatchingInvalidTypeError(symbolsJson, expectedStage: "start");
             }
             finally
@@ -148,7 +158,10 @@ public class DaemonTimeoutOptionTests
     [Fact]
     public async Task SendOrWriteValidationErrorAsync_WhenClientValidationFails_WritesStructuredError()
     {
+        // Arrange
         string output;
+
+        // Act
         using (var capture = ConsoleOutputCapture.Start())
         {
             var response = await CommandHelpers.SendOrWriteValidationErrorAsync(() =>
@@ -163,6 +176,7 @@ public class DaemonTimeoutOptionTests
             output = capture.GetOutput();
         }
 
+        // Assert
         using var json = JsonDocument.Parse(output);
         var error = json.RootElement.GetProperty("error");
         Assert.Equal("DAEMON_RESPONSE_TIMEOUT", error.GetProperty("code").GetString());

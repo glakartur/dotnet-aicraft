@@ -1,5 +1,4 @@
 using System.CommandLine;
-using DotnetAICraft.Daemon;
 using DotnetAICraft.Commands.Shared;
 using DotnetAICraft.Commands.Symbols;
 using DotnetAICraft.Output;
@@ -23,20 +22,20 @@ public static class SymbolsCommand
 
         var kindOpt = new Option<string>("--kind")
         {
-            Description = $"Symbol kind filter: {DaemonServer.SymbolsKindAcceptedValues}",
+            Description = $"Symbol kind filter: {AnalysisCommandMetadata.SymbolsKindAcceptedValues}",
             DefaultValueFactory = _ => "all"
         };
 
         var limitOpt = new Option<int>("--limit")
         {
-            Description = $"Maximum number of results to return (default: {DaemonServer.SymbolsDefaultLimit}, max: {DaemonServer.SymbolsMaxLimit})",
-            DefaultValueFactory = _ => DaemonServer.SymbolsDefaultLimit
+            Description = $"Maximum number of results to return (default: {AnalysisCommandMetadata.SymbolsDefaultLimit}, max: {AnalysisCommandMetadata.SymbolsMaxLimit})",
+            DefaultValueFactory = _ => AnalysisCommandMetadata.SymbolsDefaultLimit
         };
 
         var offsetOpt = new Option<int>("--offset")
         {
             Description = "Number of matching results to skip before collecting output",
-            DefaultValueFactory = _ => DaemonServer.SymbolsDefaultOffset
+            DefaultValueFactory = _ => AnalysisCommandMetadata.SymbolsDefaultOffset
         };
 
         var cmd = new Command("symbols", "Search symbols by name pattern across the solution")

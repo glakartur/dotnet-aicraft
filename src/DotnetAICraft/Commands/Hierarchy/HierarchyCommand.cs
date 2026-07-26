@@ -21,7 +21,7 @@ public static class HierarchyCommand
 
         var directionOpt = new Option<string>("--direction")
         {
-            Description = $"Inheritance direction (required): {Validation.DirectionAcceptedValues}",
+            Description = $"Inheritance direction (required): {CliValidation.DirectionAcceptedValues}",
             Required = true
         };
 

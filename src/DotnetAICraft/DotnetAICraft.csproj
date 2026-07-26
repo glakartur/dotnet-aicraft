@@ -28,6 +28,9 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <Deterministic>true</Deterministic>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <AicraftDaemonProjectPath>$(MSBuildThisFileDirectory)../AICraftDaemon/AICraftDaemon.csproj</AicraftDaemonProjectPath>
+    <AicraftDaemonBuildDir>$(MSBuildThisFileDirectory)../AICraftDaemon/bin/$(Configuration)/$(TargetFramework)/</AicraftDaemonBuildDir>
+    <AicraftDaemonPublishDir>$(IntermediateOutputPath)AicraftDaemonPublish/</AicraftDaemonPublishDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,18 +43,37 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Roslyn / MSBuild -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.3.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
-    <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
-    <PackageReference Include="Microsoft.Build.Framework" Version="18.6.3" ExcludeAssets="runtime" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.NET.StringTools" Version="18.6.3" ExcludeAssets="runtime" PrivateAssets="all" />
+    <ProjectReference Include="../AICraftDaemon/AICraftDaemon.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="../DotnetAICraft.Core/DotnetAICraft.Core.csproj" />
 
-    <!-- CLI framework -->
-    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.4.26230.115" />
+    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.6.26359.118" />
+    <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
 
     <!-- Source Link -->
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.300" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.301" PrivateAssets="all" />
   </ItemGroup>
+
+  <Target Name="CopyAicraftDaemonToOutput" AfterTargets="Build" Condition="'$(SkipAicraftDaemonBuildTargets)' != 'true'">
+    <ItemGroup>
+      <AicraftDaemonArtifacts Include="$(AicraftDaemonBuildDir)aicraft-daemon*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(AicraftDaemonArtifacts)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyAicraftDaemonToPublish" AfterTargets="Publish" Condition="'$(SkipAicraftDaemonBuildTargets)' != 'true'">
+    <ItemGroup>
+      <AicraftDaemonPublishedArtifacts Include="$(AicraftDaemonBuildDir)aicraft-daemon*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(AicraftDaemonPublishedArtifacts)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="IncludeAicraftDaemonInPackage" BeforeTargets="GenerateNuspec" Condition="'$(SkipAicraftDaemonBuildTargets)' != 'true'">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(AicraftDaemonBuildDir)aicraft-daemon*">
+        <PackagePath>tools/$(TargetFramework)/any/%(Filename)%(Extension)</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
 </Project>

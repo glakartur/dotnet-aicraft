@@ -18,7 +18,7 @@ internal static class Entry
         string? idleTimeout,
         OutputFormat format = OutputFormat.Text)
     {
-        Validation.ValidateCliArgs(file, line: null, col: null, symbol);
+        CliValidation.ValidateCliArgs(file, line: null, col: null, symbol);
 
         var @params = !string.IsNullOrWhiteSpace(symbol)
             ? (object)new { symbol = symbol.Trim(), publicOnly, includeInherited }

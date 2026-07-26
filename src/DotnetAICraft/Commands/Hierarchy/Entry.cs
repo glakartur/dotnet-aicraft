@@ -21,15 +21,15 @@ internal static class Entry
         string? idleTimeout,
         OutputFormat format = OutputFormat.Text)
     {
-        Validation.ValidateCliModeArgs(file, line, col, symbol);
+        CliValidation.ValidateCliModeArgs(file, line, col, symbol);
 
-        if (!Validation.TryParseDirection(direction, out var normalizedDirection, out var directionError))
+        if (!CliValidation.TryParseDirection(direction, out var normalizedDirection, out var directionError))
         {
             CommandHelpers.WriteError(format, directionError!.Code, directionError.Message, directionError.Details);
             return;
         }
 
-        if (!Validation.TryNormalizeMaxDepth(maxDepth, out var normalizedMaxDepth, out var maxDepthError))
+        if (!CliValidation.TryNormalizeMaxDepth(maxDepth, out var normalizedMaxDepth, out var maxDepthError))
         {
             CommandHelpers.WriteError(format, maxDepthError!.Code, maxDepthError.Message, maxDepthError.Details);
             return;

@@ -1,5 +1,6 @@
 using DotnetAICraft.Commands.Hierarchy;
 using DotnetAICraft.Daemon;
+using HierarchyValidation = DotnetAICraft.Commands.Hierarchy.CliValidation;
 using DotnetAICraft.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -15,11 +16,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Down_Class_Transitive_BuildsDerivedChain()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var animal = await ResolveTypeAsync(fixture.Solution, "Demo.Animal");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, animal, "down");
 
+        // Assert
         Assert.Equal("Demo.Animal", root.FullName);
         var dog = Single(root, "Dog");
         var puppy = Single(dog, "Puppy");
@@ -29,11 +33,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Down_Class_CrossProject_IncludesDerivedFromOtherProject()
     {
+        // Arrange
         using var fixture = CreateCrossProjectFixture();
         var baseType = await ResolveTypeAsync(fixture.Solution, "Demo.BaseType");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, baseType, "down");
 
+        // Assert
         Assert.Contains(root.Children, c => c.FullName == "Demo.DerivedType");
     }
 
@@ -41,11 +48,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Up_Class_BaseChain_StopsBeforeObjectByDefault()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var puppy = await ResolveTypeAsync(fixture.Solution, "Demo.Puppy");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, puppy, "up");
 
+        // Assert
         var dog = Single(root, "Dog");
         var animal = Single(dog, "Animal");
         Assert.Empty(animal.Children); // object omitted by default (R10)
@@ -54,11 +64,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Up_Class_IncludeFramework_WalksMetadataBasesToObject()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var animal = await ResolveTypeAsync(fixture.Solution, "Demo.Animal");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, animal, "up", includeFramework: true);
 
+        // Assert
         var obj = Single(root, "Object");
         Assert.Equal("", obj.File); // metadata node: location-less (R11)
         Assert.Equal(0, obj.Line);
@@ -68,11 +81,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Up_Class_FrameworkBaseOmittedByDefault()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var myError = await ResolveTypeAsync(fixture.Solution, "Demo.MyError");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, myError, "up");
 
+        // Assert
         Assert.Empty(root.Children); // System.Exception (and above) omitted (R10)
     }
 
@@ -80,11 +96,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Down_Interface_ReturnsDerivedInterfacesOnly_ExcludesClasses()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var ia = await ResolveTypeAsync(fixture.Solution, "Demo.IA");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, ia, "down");
 
+        // Assert
         Assert.Contains(root.Children, c => c.Name == "IB");
         Assert.DoesNotContain(root.Children, c => c.Name == "CImpl"); // R8
     }
@@ -92,11 +111,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Up_Interface_ReturnsExtendedInterfaces()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var idiamond = await ResolveTypeAsync(fixture.Solution, "Demo.IDiamond");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, idiamond, "up");
 
+        // Assert
         Assert.Contains(root.Children, c => c.Name == "ILeft"); // R9
         Assert.Contains(root.Children, c => c.Name == "IRight");
     }
@@ -104,11 +126,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Up_Interface_Diamond_EmitsSharedBaseOncePerPath_NoMarker()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var idiamond = await ResolveTypeAsync(fixture.Solution, "Demo.IDiamond");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, idiamond, "up");
 
+        // Assert
         var left = Single(root, "ILeft");
         var right = Single(root, "IRight");
         Assert.Equal("Demo.IBase", Single(left, "IBase").FullName); // D8: appears under each path
@@ -119,22 +144,28 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Down_OpenGenericBase_FindsConstructedDerivation()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var box = await ResolveTypeAsync(fixture.Solution, "Demo.Box`1"); // open Box<T>
 
+        // Act
         var root = await BuildAsync(fixture.Solution, box, "down");
 
+        // Assert
         Assert.Contains(root.Children, c => c.Name == "StringBox"); // R12
     }
 
     [Fact]
     public async Task Up_FromConstructedDerivation_ShowsConstructedBaseDisplay()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var stringBox = await ResolveTypeAsync(fixture.Solution, "Demo.StringBox");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, stringBox, "up");
 
+        // Assert
         var box = Assert.Single(root.Children);
         Assert.Equal("Demo.Box<string>", box.FullName); // R13: not Box<T>/Box
     }
@@ -143,11 +174,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Down_Struct_HasNoDerivations()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var coord = await ResolveTypeAsync(fixture.Solution, "Demo.Coord");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, coord, "down");
 
+        // Assert
         Assert.Equal("struct", root.Kind);
         Assert.Empty(root.Children);
     }
@@ -155,15 +189,18 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task Record_ResolvesAsClass_UpAndDownBehaveAsClass()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var employee = await ResolveTypeAsync(fixture.Solution, "Demo.Employee");
+        var person = await ResolveTypeAsync(fixture.Solution, "Demo.Person");
 
+        // Act
         var up = await BuildAsync(fixture.Solution, employee, "up");
+        var down = await BuildAsync(fixture.Solution, person, "down");
+
+        // Assert
         Assert.Equal("class", up.Kind);
         Assert.Contains(up.Children, c => c.Name == "Person");
-
-        var person = await ResolveTypeAsync(fixture.Solution, "Demo.Person");
-        var down = await BuildAsync(fixture.Solution, person, "down");
         Assert.Contains(down.Children, c => c.Name == "Employee");
     }
 
@@ -171,11 +208,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task MaxDepth1_TruncatesNodesWithFurtherChildren()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var animal = await ResolveTypeAsync(fixture.Solution, "Demo.Animal");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, animal, "down", maxDepth: 1);
 
+        // Assert
         var dog = Single(root, "Dog");
         Assert.True(dog.Truncated);
         Assert.Empty(dog.Children); // Puppy elided
@@ -184,11 +224,14 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task NoMaxDepth_BuildsFullTreeWithoutTruncation()
     {
+        // Arrange
         using var fixture = CreateFixture();
         var animal = await ResolveTypeAsync(fixture.Solution, "Demo.Animal");
 
+        // Act
         var root = await BuildAsync(fixture.Solution, animal, "down");
 
+        // Assert
         var dog = Single(root, "Dog");
         var puppy = Single(dog, "Puppy");
         Assert.False(dog.Truncated);
@@ -199,23 +242,29 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task ResolveAsync_EnumTarget_ThrowsInvalidTargetKind()
     {
+        // Arrange
         using var fixture = CreateFixture();
 
+        // Act
         var ex = await Assert.ThrowsAsync<DaemonValidationException>(() =>
             UseCase.ResolveAsync(fixture.Solution, "Demo.Color", null, null, null,
                 direction: "down", includeFramework: false, maxDepth: null));
 
+        // Assert
         Assert.Equal("INVALID_TARGET_KIND", ex.Error.Code);
     }
 
     [Fact]
     public async Task ResolveAsync_ClassTarget_ReturnsSingleGroupWithRootNode()
     {
+        // Arrange
         using var fixture = CreateFixture();
 
+        // Act
         var groups = await UseCase.ResolveAsync(fixture.Solution, "Demo.Animal", null, null, null,
             direction: "down", includeFramework: false, maxDepth: null);
 
+        // Assert
         var group = Assert.Single(groups);
         Assert.Equal("Demo.Animal", group.Symbol);
         Assert.Equal("class", group.Kind);
@@ -226,12 +275,15 @@ public class HierarchyTraversalTests
     [Fact]
     public async Task ResolveAsync_InvalidDirection_ThrowsInvalidParams()
     {
+        // Arrange
         using var fixture = CreateFixture();
 
+        // Act
         var ex = await Assert.ThrowsAsync<DaemonValidationException>(() =>
             UseCase.ResolveAsync(fixture.Solution, "Demo.Animal", null, null, null,
                 direction: "sideways", includeFramework: false, maxDepth: null));
 
+        // Assert
         Assert.Equal("INVALID_PARAMS", ex.Error.Code);
     }
 
@@ -244,7 +296,7 @@ public class HierarchyTraversalTests
         int? maxDepth = null)
         => OutputMapping.BuildNodeAsync(
             solution, type, direction, includeFramework,
-            maxDepth ?? Validation.UnboundedMaxDepth, depth: 0, solutionDir: "", CancellationToken.None);
+            maxDepth ?? HierarchyValidation.UnboundedMaxDepth, depth: 0, solutionDir: "", CancellationToken.None);
 
     private static HierarchyNode Single(HierarchyNode node, string childSimpleName)
         => Assert.Single(node.Children, c => c.Name == childSimpleName);

@@ -3,6 +3,7 @@ using DotnetAICraft.Commands;
 using DotnetAICraft.Commands.Describe;
 using DotnetAICraft.Output;
 using Xunit;
+using DescribeCliValidation = DotnetAICraft.Commands.Describe.CliValidation;
 
 namespace DotnetAICraft.Tests.Commands;
 
@@ -11,12 +12,20 @@ public class DescribeCommandTests
     [Fact]
     public void Build_ExposesExpectedOptionsAndAliases()
     {
-        var command = DescribeCommand.Build(
-            new Option<FileInfo>("--solution", "-s") { Required = false },
-            new Option<FileInfo>("--project", "-p") { Required = false },
-            new Option<string?>("--idle-timeout"),
-            formatOption: new Option<OutputFormat>("--format") { DefaultValueFactory = _ => OutputFormat.Text });
+        // Arrange
+        var solutionOption = new Option<FileInfo>("--solution", "-s") { Required = false };
+        var projectOption = new Option<FileInfo>("--project", "-p") { Required = false };
+        var idleTimeoutOption = new Option<string?>("--idle-timeout");
+        var formatOption = new Option<OutputFormat>("--format") { DefaultValueFactory = _ => OutputFormat.Text };
 
+        // Act
+        var command = DescribeCommand.Build(
+            solutionOption,
+            projectOption,
+            idleTimeoutOption,
+            formatOption: formatOption);
+
+        // Assert
         Assert.Equal("describe", command.Name);
         AssertContainsOption(command, "--solution");
         AssertContainsOption(command, "--file");
@@ -29,18 +38,33 @@ public class DescribeCommandTests
     [Fact]
     public void ValidateArgs_RejectsMissingMixedOrPartialInputModes()
     {
-        Assert.Throws<ArgumentException>(() => Validation.ValidateCliArgs(null, null, null, null));
-        Assert.Throws<ArgumentException>(() =>
-            Validation.ValidateCliArgs(new FileInfo("/tmp/Sample.cs"), 10, 4, "Demo.Sample"));
-        Assert.Throws<ArgumentException>(() =>
-            Validation.ValidateCliArgs(new FileInfo("/tmp/Sample.cs"), 10, null, null));
+        // Arrange
+        var validFile = new FileInfo("/tmp/Sample.cs");
+
+        // Act
+        Action missingInputMode = () => DescribeCliValidation.ValidateCliArgs(null, null, null, null);
+        Action mixedInputModes = () => DescribeCliValidation.ValidateCliArgs(validFile, 10, 4, "Demo.Sample");
+        Action partialLocationMode = () => DescribeCliValidation.ValidateCliArgs(validFile, 10, null, null);
+
+        // Assert
+        Assert.Throws<ArgumentException>(missingInputMode);
+        Assert.Throws<ArgumentException>(mixedInputModes);
+        Assert.Throws<ArgumentException>(partialLocationMode);
     }
 
     [Fact]
     public void ValidateArgs_AllowsExactlyOneInputMode()
     {
-        Validation.ValidateCliArgs(null, null, null, "Demo.Sample");
-        Validation.ValidateCliArgs(new FileInfo("/tmp/Sample.cs"), 10, 4, null);
+        // Arrange
+        var validFile = new FileInfo("/tmp/Sample.cs");
+
+        // Act
+        var symbolMode = Record.Exception(() => DescribeCliValidation.ValidateCliArgs(null, null, null, "Demo.Sample"));
+        var locationMode = Record.Exception(() => DescribeCliValidation.ValidateCliArgs(validFile, 10, 4, null));
+
+        // Assert
+        Assert.Null(symbolMode);
+        Assert.Null(locationMode);
     }
 
     private static void AssertContainsOption(Command command, string alias)

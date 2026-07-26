@@ -9,6 +9,14 @@ namespace DotnetAICraft.Tests.Output;
 public class TextOutputServerStatusTests
 {
     [Fact]
+    public void ServerStop_Initiated_RendersTextMessage()
+    {
+        using var cap = ConsoleOutputCapture.Start();
+        TextOutput.WriteServerStop(shutdownInitiated: true);
+        Assert.Equal($"Shutdown initiated.{Environment.NewLine}", cap.GetOutput());
+    }
+
+    [Fact]
     public void Full_RendersAllRows()
     {
         var status = new DaemonStatus(

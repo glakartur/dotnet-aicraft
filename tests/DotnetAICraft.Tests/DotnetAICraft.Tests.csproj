@@ -9,20 +9,30 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.3.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
-    <PackageReference Include="Microsoft.Build.Framework" Version="18.6.3" ExcludeAssets="runtime" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.NET.StringTools" Version="18.6.3" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="18.8.2" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.StringTools" Version="18.8.2" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/DotnetAICraft.Core/DotnetAICraft.Core.csproj" />
     <ProjectReference Include="../../src/DotnetAICraft/DotnetAICraft.csproj" />
+    <ProjectReference Include="../../src/AICraftDaemon/AICraftDaemon.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyAicraftDaemonArtifacts" AfterTargets="Build">
+    <ItemGroup>
+      <AicraftDaemonArtifacts Include="../../src/AICraftDaemon/bin/$(Configuration)/$(TargetFramework)/aicraft-daemon*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(AicraftDaemonArtifacts)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
