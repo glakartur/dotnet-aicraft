@@ -46,11 +46,11 @@
     <ProjectReference Include="../AICraftDaemon/AICraftDaemon.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="../DotnetAICraft.Core/DotnetAICraft.Core.csproj" />
 
-    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.6.26359.118" />
+    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.7.26381.103" />
     <PackageReference Include="Microsoft.Build.Locator" Version="1.11.2" />
 
     <!-- Source Link -->
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.301" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.400" PrivateAssets="all" />
   </ItemGroup>
 
   <Target Name="CopyAicraftDaemonToOutput" AfterTargets="Build" Condition="'$(SkipAicraftDaemonBuildTargets)' != 'true'">
