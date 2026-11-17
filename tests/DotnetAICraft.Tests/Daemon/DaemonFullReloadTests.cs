@@ -86,12 +86,12 @@ public sealed class DaemonFullReloadTests
         {
             await using var server = NewServer(Path.Combine(root, "App.sln"));
             server.StartWorkspaceServices();
-            var original = server.GetWatcherForTesting(DaemonServer.WatcherKind.Source)!;
+            var original = server.GetWatcher(DaemonServer.WatcherKind.Source)!;
             original.EnableRaisingEvents = false;
 
             server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("watcher died"));
 
-            var recreated = server.GetWatcherForTesting(DaemonServer.WatcherKind.Source);
+            var recreated = server.GetWatcher(DaemonServer.WatcherKind.Source);
             Assert.NotNull(recreated);
             Assert.NotSame(original, recreated);
             Assert.True(recreated.EnableRaisingEvents);
@@ -112,7 +112,7 @@ public sealed class DaemonFullReloadTests
             server.HandleWatcherError(DaemonServer.WatcherKind.Tree, new IOException("directory removed")));
 
         Assert.Null(error);
-        Assert.Null(server.GetWatcherForTesting(DaemonServer.WatcherKind.Tree));
+        Assert.Null(server.GetWatcher(DaemonServer.WatcherKind.Tree));
         await WaitUntilAsync(() => server.LoadAttemptCount == 1);
     }
 
@@ -127,7 +127,7 @@ public sealed class DaemonFullReloadTests
 
             server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("late error"));
 
-            Assert.Null(server.GetWatcherForTesting(DaemonServer.WatcherKind.Source));
+            Assert.Null(server.GetWatcher(DaemonServer.WatcherKind.Source));
             await Task.Delay(Debounce * 3);
             Assert.Equal(0, server.LoadAttemptCount);
         }

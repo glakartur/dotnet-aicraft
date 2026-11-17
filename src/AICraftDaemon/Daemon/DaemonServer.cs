@@ -1157,7 +1157,7 @@ public sealed class DaemonServer : IAsyncDisposable
 
     private string WatchRoot => Path.GetDirectoryName(_solutionPath)!;
 
-    internal FileSystemWatcher? GetWatcherForTesting(WatcherKind kind)
+    internal FileSystemWatcher? GetWatcher(WatcherKind kind)
     {
         lock (_watcherLock)
             return kind == WatcherKind.Source ? _watcher : _metadataWatcher;
@@ -1302,7 +1302,7 @@ public sealed class DaemonServer : IAsyncDisposable
     {
         Log($"Watcher error ({kind}): {error?.Message}");
 
-        var watcher = GetWatcherForTesting(kind);
+        var watcher = GetWatcher(kind);
         var stopped = watcher is null || !watcher.EnableRaisingEvents;
         if ((stopped || error is not InternalBufferOverflowException) && IsAcceptingWork())
         {

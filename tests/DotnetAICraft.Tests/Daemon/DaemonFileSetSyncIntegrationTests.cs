@@ -114,6 +114,29 @@ public sealed class DaemonFileSetSyncIntegrationTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task TempFileRenamedToCs_IsAdded()
+    {
+        await using var live = await LiveSampleSolution.StartAsync();
+        var temp = live.WriteFile("src/Sample.Domain/Services/Saved.tmp", "namespace Sample.Domain.Services; public sealed class SavedViaRename { }");
+        var target = live.PathOf("src/Sample.Domain/Services/Saved.cs");
+
+        File.Move(temp, target);
+
+        await LiveSampleSolution.EventuallyAsync(() => live.DocumentsAt(target).Count == 1);
+    }
+
+    [Fact]
+    public async Task CsFileRenamedToBackup_IsRemoved()
+    {
+        await using var live = await LiveSampleSolution.StartAsync();
+        var file = live.PathOf("src/Sample.Domain/Services/OrderExtensions.cs");
+
+        File.Move(file, file + ".bak");
+
+        await LiveSampleSolution.EventuallyAsync(() => live.DocumentsAt(file).Count == 0);
+    }
+
+    [Fact]
     public async Task NewDirectoryWithFileWrittenImmediately_FileIsVisible()
     {
         await using var live = await LiveSampleSolution.StartAsync();
@@ -221,8 +244,8 @@ public sealed class DaemonFileSetSyncIntegrationTests(ITestOutputHelper output)
     public async Task WatcherErrorOnStoppedWatcher_RecreatesWatcherAndNextChangeIsDetected()
     {
         await using var live = await LiveSampleSolution.StartAsync();
-        live.Server.GetWatcherForTesting(DaemonServer.WatcherKind.Source)!.EnableRaisingEvents = false;
-        live.Server.GetWatcherForTesting(DaemonServer.WatcherKind.Tree)!.EnableRaisingEvents = false;
+        live.Server.GetWatcher(DaemonServer.WatcherKind.Source)!.EnableRaisingEvents = false;
+        live.Server.GetWatcher(DaemonServer.WatcherKind.Tree)!.EnableRaisingEvents = false;
 
         live.Server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("watcher died"));
         live.Server.HandleWatcherError(DaemonServer.WatcherKind.Tree, new IOException("watcher died"));
