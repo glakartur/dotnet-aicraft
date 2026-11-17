@@ -6,7 +6,7 @@ namespace DotnetAICraft.Daemon.FileSetSync;
 /// path, so a continuous stream of events cannot postpone the update forever.
 /// Only one flush runs at a time; paths that arrive during a flush go to the next batch.
 /// </summary>
-internal sealed class FileSetChangeQueue : IDisposable
+internal sealed class FileSetChangeQueue : IDisposable, IAsyncDisposable
 {
     public static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(400);
     public static readonly TimeSpan DefaultMaxDelay = TimeSpan.FromSeconds(2);
@@ -24,6 +24,7 @@ internal sealed class FileSetChangeQueue : IDisposable
     private bool _flushing;
     private bool _dueWhileFlushing;
     private bool _disposed;
+    private Task _currentFlush = Task.CompletedTask;
 
     /// <param name="flush">Handles one batch. It should handle its own errors; an exception is swallowed.</param>
     public FileSetChangeQueue(
@@ -56,6 +57,17 @@ internal sealed class FileSetChangeQueue : IDisposable
         _timer.Dispose();
     }
 
+    /// <summary>Stops the queue and waits for a flush that is already running.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+
+        Task flush;
+        lock (_lock)
+            flush = _currentFlush;
+        await flush;
+    }
+
     private void Add(bool isDirectory, string path)
     {
         lock (_lock)
@@ -76,6 +88,7 @@ internal sealed class FileSetChangeQueue : IDisposable
     private void OnDue()
     {
         FileSetBatch batch;
+        TaskCompletionSource done;
         lock (_lock)
         {
             if (_disposed || (_files.Count == 0 && _directories.Count == 0))
@@ -92,12 +105,15 @@ internal sealed class FileSetChangeQueue : IDisposable
             _directories = new HashSet<string>(StringComparer.Ordinal);
             _firstPendingAt = null;
             _flushing = true;
+            done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _currentFlush = done.Task;
         }
 
-        _ = FlushAsync(batch);
+        // Run the callback outside the lock so watcher threads can keep enqueuing.
+        _ = FlushAsync(batch, done);
     }
 
-    private async Task FlushAsync(FileSetBatch batch)
+    private async Task FlushAsync(FileSetBatch batch, TaskCompletionSource done)
     {
         try
         {
@@ -106,6 +122,10 @@ internal sealed class FileSetChangeQueue : IDisposable
         catch
         {
             // The flush callback owns error handling; keep the queue alive.
+        }
+        finally
+        {
+            done.SetResult();
         }
 
         bool flushAgain;

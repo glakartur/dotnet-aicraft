@@ -1,5 +1,6 @@
 using System.Text;
 using DotnetAICraft.Daemon.FileSetSync;
+using DotnetAICraft.Tests.Support;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using Xunit;
@@ -163,6 +164,46 @@ public sealed class SolutionFileSetReconcilerTests
 
         Assert.Equal(ReconcileOutcome.Fallback, result.Outcome);
         Assert.Null(result.Solution);
+        // The legacy project may list any file, so both new files are undecided.
+        Assert.Equal(new[] { good, legacy }.Order(StringComparer.Ordinal), result.FallbackPaths.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_FileExcludedByLastLoad_IsSkippedWithoutFallback()
+    {
+        using var t = new FileSetTestSolution();
+        t.AddProject("src/Legacy/Legacy.csproj", FileSetTestSolution.LegacyProject);
+        var excluded = t.WriteFile("src/Legacy/NotListed.cs", "class NotListed { }");
+
+        var result = await new SolutionFileSetReconciler(t.Root).ReconcileAsync(
+            t.Solution,
+            new FileSetBatch([excluded], []),
+            CancellationToken.None,
+            new HashSet<string> { excluded });
+
+        Assert.Equal(ReconcileOutcome.NoChange, result.Outcome);
+        Assert.Contains(result.Skipped, s => s.StartsWith(excluded, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Reconcile_NestedDirectoryMarkers_ExpandOnce()
+    {
+        using var t = new FileSetTestSolution();
+        var projectId = t.AddProject("src/A/A.csproj");
+        var old = t.AddDocument("src/A/Models/Deep/One.cs", "class One { }", projectId);
+        Directory.Move(t.PathOf("src/A/Models"), t.PathOf("src/A/Entities"));
+
+        var result = await Reconcile(t, directories:
+        [
+            t.PathOf("src/A/Models"),
+            t.PathOf("src/A/Models/Deep"),
+            t.PathOf("src/A/Entities") + Path.DirectorySeparatorChar,
+            t.PathOf("src/A/Entities/Deep"),
+        ]);
+
+        Assert.Equal(ReconcileOutcome.Applied, result.Outcome);
+        Assert.Empty(t.DocumentsAt(result.Solution!, old));
+        Assert.Single(t.DocumentsAt(result.Solution!, t.PathOf("src/A/Entities/Deep/One.cs")));
     }
 
     [Theory]
@@ -171,6 +212,7 @@ public sealed class SolutionFileSetReconcilerTests
     [InlineData("src/A/Foo.g.cs")]
     [InlineData("src/A/Foo.g.i.cs")]
     [InlineData("src/A/.foo/Foo.cs")]
+    [InlineData("src/A/node_modules/pkg/Foo.cs")]
     public async Task Reconcile_IgnoredPath_ReturnsNoChange(string relativePath)
     {
         using var t = new FileSetTestSolution();
@@ -355,12 +397,9 @@ public sealed class SolutionFileSetReconcilerTests
         Assert.Equal(newPath, document.FilePath);
     }
 
-    [Fact]
+    [LinuxOnlyFact]
     public async Task Reconcile_OnLinux_FilesDifferingOnlyInCaseAreSeparateDocuments()
     {
-        if (!OperatingSystem.IsLinux())
-            return;
-
         using var t = new FileSetTestSolution();
         var projectId = t.AddProject("src/A/A.csproj");
         var upper = t.AddDocument("src/A/Foo.cs", "class Foo { }", projectId);

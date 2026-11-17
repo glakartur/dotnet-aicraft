@@ -25,6 +25,7 @@ internal sealed record AddedDocument(string Path, string ProjectName);
 /// <param name="Solution">The new solution when <see cref="Outcome"/> is <see cref="ReconcileOutcome.Applied"/>.</param>
 /// <param name="Skipped">New files that no project compiles, with the reason (log only).</param>
 /// <param name="Retry">Paths that could not be read; the caller may queue them again once.</param>
+/// <param name="FallbackPaths">New files whose owner could not be decided (empty for a mass-change fallback).</param>
 internal sealed record ReconcileResult(
     ReconcileOutcome Outcome,
     Solution? Solution,
@@ -33,10 +34,11 @@ internal sealed record ReconcileResult(
     IReadOnlyList<string> Updated,
     IReadOnlyList<string> Skipped,
     IReadOnlyList<string> Retry,
-    string? FallbackReason)
+    string? FallbackReason,
+    IReadOnlyList<string> FallbackPaths)
 {
-    public static ReconcileResult ForFallback(string reason)
-        => new(ReconcileOutcome.Fallback, null, [], [], [], [], [], reason);
+    public static ReconcileResult ForFallback(string reason, IReadOnlyList<string>? paths = null)
+        => new(ReconcileOutcome.Fallback, null, [], [], [], [], [], reason, paths ?? []);
 }
 
 /// <summary>
@@ -58,7 +60,16 @@ internal sealed class SolutionFileSetReconciler(
     /// </summary>
     public const int DefaultMassChangeThreshold = 300;
 
-    public async Task<ReconcileResult> ReconcileAsync(Solution solution, FileSetBatch batch, CancellationToken ct)
+    /// <param name="excludedByLastLoad">
+    /// Files that were on disk during the last full load, but are not in the
+    /// solution: MSBuild evaluation already decided they are not compiled. They
+    /// are skipped, so saving such a file does not cause a full reload each time.
+    /// </param>
+    public async Task<ReconcileResult> ReconcileAsync(
+        Solution solution,
+        FileSetBatch batch,
+        CancellationToken ct,
+        IReadOnlySet<string>? excludedByLastLoad = null)
     {
         var paths = CollectPaths(solution, batch);
         var disk = new DiskFileNames();
@@ -87,12 +98,20 @@ internal sealed class SolutionFileSetReconciler(
         var resolver = new ProjectOwnershipResolver(solution);
         var skipped = new List<string>();
         var ownedAdditions = new List<(string Path, OwnershipDecision.Owned Owner)>();
+        var fallbacks = new List<(string Path, string Reason)>();
         foreach (var path in additions)
         {
+            if (excludedByLastLoad?.Contains(path) == true)
+            {
+                skipped.Add($"{path}: not compiled according to the last full load");
+                continue;
+            }
+
             switch (resolver.Resolve(path))
             {
                 case OwnershipDecision.Fallback fallback:
-                    return ReconcileResult.ForFallback($"{path}: {fallback.Reason}");
+                    fallbacks.Add((path, fallback.Reason));
+                    break;
                 case OwnershipDecision.NotOwned notOwned:
                     skipped.Add($"{path}: {notOwned.Reason}");
                     break;
@@ -100,6 +119,14 @@ internal sealed class SolutionFileSetReconciler(
                     ownedAdditions.Add((path, owned));
                     break;
             }
+        }
+
+        if (fallbacks.Count > 0)
+        {
+            var (firstPath, firstReason) = fallbacks[0];
+            return ReconcileResult.ForFallback(
+                $"{firstPath}: {firstReason}",
+                [.. fallbacks.Select(f => f.Path)]);
         }
 
         var result = solution;
@@ -158,8 +185,12 @@ internal sealed class SolutionFileSetReconciler(
             updated,
             skipped,
             retry,
-            FallbackReason: null);
+            FallbackReason: null,
+            FallbackPaths: []);
     }
+
+    /// <summary>True when the solution has a document with exactly this path.</summary>
+    public static bool ContainsDocument(Solution solution, string path) => FindDocuments(solution, path).Count > 0;
 
     /// <summary>
     /// File paths of the batch plus the expansion of each directory marker:
@@ -174,17 +205,21 @@ internal sealed class SolutionFileSetReconciler(
         foreach (var file in batch.Files)
             AddIfTracked(paths, file);
 
-        foreach (var directory in batch.Directories)
+        var markers = CollapseToTopmost(batch.Directories
+            .Where(directory => !FileSetPaths.IsIgnoredDirectory(rootDirectory, directory)));
+        if (markers.Count == 0)
+            return paths;
+
+        // One pass over the documents: walk each document's parent directories
+        // and look them up in the marker set (O(documents x depth)).
+        foreach (var document in solution.Projects.SelectMany(p => p.Documents))
         {
-            if (FileSetPaths.IsIgnoredDirectory(rootDirectory, directory))
-                continue;
+            if (document.FilePath is { } documentPath && HasAncestorIn(markers, documentPath))
+                AddIfTracked(paths, documentPath);
+        }
 
-            foreach (var document in solution.Projects.SelectMany(p => p.Documents))
-            {
-                if (document.FilePath is { } documentPath && FileSetPaths.IsUnderDirectory(directory, documentPath))
-                    AddIfTracked(paths, documentPath);
-            }
-
+        foreach (var directory in markers)
+        {
             if (Directory.Exists(directory))
             {
                 foreach (var file in EnumerateSourceFiles(directory))
@@ -193,6 +228,26 @@ internal sealed class SolutionFileSetReconciler(
         }
 
         return paths;
+    }
+
+    /// <summary>Removes markers that are inside another marker of the same batch.</summary>
+    private static HashSet<string> CollapseToTopmost(IEnumerable<string> directories)
+    {
+        var all = directories
+            .Select(d => Path.TrimEndingDirectorySeparator(d))
+            .ToHashSet(FileSetPaths.OsComparer);
+        return all.Where(d => !HasAncestorIn(all, d)).ToHashSet(FileSetPaths.OsComparer);
+    }
+
+    private static bool HasAncestorIn(HashSet<string> directories, string path)
+    {
+        for (var parent = Path.GetDirectoryName(path); !string.IsNullOrEmpty(parent); parent = Path.GetDirectoryName(parent))
+        {
+            if (directories.Contains(parent))
+                return true;
+        }
+
+        return false;
     }
 
     private void AddIfTracked(ISet<string> paths, string path)

@@ -137,6 +137,77 @@ public sealed class DaemonFullReloadTests
         }
     }
 
+    [Fact]
+    public async Task HandleWatcherError_FromWatcherThatIsNotRegistered_DoesNotRecreate()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            await using var server = NewServer(Path.Combine(root, "App.sln"));
+            server.StartWorkspaceServices();
+            var registered = server.GetWatcher(DaemonServer.WatcherKind.Source);
+            using var starting = new FileSystemWatcher(root);
+
+            server.HandleWatcherError(DaemonServer.WatcherKind.Source, starting, new IOException("error while starting"));
+
+            Assert.Same(registered, server.GetWatcher(DaemonServer.WatcherKind.Source));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartWorkspaceServices_UnreadableSubdirectory_DoesNotRecurseOrHang()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var root = CreateTempDirectory();
+        var locked = Path.Combine(root, "locked");
+        Directory.CreateDirectory(locked);
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            await using var server = NewServer(Path.Combine(root, "App.sln"));
+
+            var start = Task.Run(server.StartWorkspaceServices);
+            var finished = await Task.WhenAny(start, Task.Delay(TimeSpan.FromSeconds(10)));
+
+            Assert.Same(start, finished);
+            await start;
+            await WaitUntilAsync(() => server.LoadAttemptCount >= 1);
+            await Task.Delay(Debounce * 3);
+            Assert.True(server.LoadAttemptCount <= 3, $"load attempts: {server.LoadAttemptCount}");
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ScheduleFullReload_ContinuousTriggers_ReloadNoLaterThanMaxDelay()
+    {
+        await using var server = new DaemonServer(Path.Combine(Path.GetTempPath(), "no-such.sln"))
+        {
+            FullReloadDebounce = TimeSpan.FromMilliseconds(200),
+            FullReloadMaxDelay = TimeSpan.FromMilliseconds(500),
+        };
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (server.LoadAttemptCount == 0 && stopwatch.Elapsed < TimeSpan.FromSeconds(3))
+        {
+            server.ScheduleFullReload("steady stream");
+            await Task.Delay(50);
+        }
+
+        Assert.True(server.LoadAttemptCount >= 1, "the reload was postponed for the whole stream");
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), $"first reload after {stopwatch.Elapsed}");
+    }
+
     private static async Task<string?> GetLoadStateAsync(DaemonServer server)
     {
         var response = await server.DispatchAsync(new DaemonRequest("status-1", "status", null), CancellationToken.None);

@@ -56,11 +56,13 @@ A fallback for when results look stale. The daemon keeps itself in sync:
 
 - Edits and added, deleted, renamed or moved `.cs` files (also whole directories)
   are applied in memory within about a second. The watcher ignores `obj/`, `bin/`,
-  hidden directories and `*.g.cs`.
+  `node_modules/`, hidden directories and `*.g.cs`.
 - Changes to `.sln`, `.slnx`, `.csproj`, `Directory.Build.props/targets` or
   `Directory.Packages.props` trigger an automatic full reload. So does a new file
   whose project cannot be determined safely (legacy or nested projects, explicit
-  `Compile` items), a large batch of added/removed files, and a file-watcher error.
+  `Compile` items in any project), a large batch of added/removed files, and a
+  file-watcher error. A file that the reload leaves out is remembered, so saving it
+  again does not reload again.
   During a reload, queries return `SOLUTION_LOADING`.
 - `rename` right after a file was added or deleted can return `SOLUTION_LOADING`
   (it reloads first, so it never writes project files). Retry after the reload.

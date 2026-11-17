@@ -61,7 +61,7 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
         return candidates.Count switch
         {
             0 => ResolveWithoutCandidate(projectFiles),
-            1 => ResolveSingleCandidate(candidates[0]),
+            1 => ResolveSingleCandidate(candidates[0], projectFiles),
             _ => new OwnershipDecision.Fallback(
                 $"overlapping projects: {string.Join(", ", candidates.Select(Path.GetFileName))}"),
         };
@@ -81,13 +81,27 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
         return new OwnershipDecision.NotOwned("outside all project directories");
     }
 
-    private OwnershipDecision ResolveSingleCandidate(string projectFile)
+    private OwnershipDecision ResolveSingleCandidate(string projectFile, IEnumerable<string> projectFiles)
     {
         if (!projectFile.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
             return new OwnershipDecision.NotOwned($"{Path.GetFileName(projectFile)} is not a C# project");
 
         if (GetPolicyViolation(projectFile) is { } violation)
             return new OwnershipDecision.Fallback($"{Path.GetFileName(projectFile)}: {violation}");
+
+        // Another project can link the file (e.g. <Compile Include="..\A\Shared.cs" />);
+        // the directory owner alone does not prove it is the only one.
+        foreach (var other in projectFiles)
+        {
+            if (string.Equals(other, projectFile, FileSetPaths.OsComparison))
+                continue;
+
+            if (GetPolicyViolation(other) is { } otherViolation)
+            {
+                return new OwnershipDecision.Fallback(
+                    $"{Path.GetFileName(other)} may also include it ({otherViolation})");
+            }
+        }
 
         var projectIds = solution.Projects
             .Where(p => string.Equals(p.FilePath, projectFile, FileSetPaths.OsComparison))

@@ -183,7 +183,7 @@ public sealed class DaemonFileSetSyncIntegrationTests(ITestOutputHelper output)
         var documentsBefore = (await live.StatusAsync()).Documents;
 
         live.WriteFile("scripts/Tool.cs", "public sealed class LooseTool { }");
-        await Task.Delay(QuietPeriod);
+        await WaitForSentinelAsync(live);
 
         Assert.Empty(await live.SymbolsAsync("LooseTool"));
         Assert.Equal(documentsBefore, (await live.StatusAsync()).Documents);
@@ -209,12 +209,35 @@ public sealed class DaemonFileSetSyncIntegrationTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task FileExcludedByCompileRemove_LaterSavesDoNotReloadAgain()
+    {
+        await using var live = await LiveSampleSolution.StartAsync(root =>
+        {
+            var project = Path.Combine(root, "src", "Sample.App", "Sample.App.csproj");
+            var xml = File.ReadAllText(project).Replace(
+                "</Project>",
+                "  <ItemGroup><Compile Remove=\"Legacy/**\" /></ItemGroup>\n</Project>");
+            File.WriteAllText(project, xml);
+        });
+
+        var excluded = live.WriteFile("src/Sample.App/Legacy/Old.cs", "namespace Sample.App; public sealed class OldOne { }");
+        await live.WaitLoadedAsync(expectedAttempts: 2);
+        Assert.Empty(live.DocumentsAt(excluded));
+
+        File.AppendAllText(excluded, "// saved again\n");
+        await WaitForSentinelAsync(live);
+
+        Assert.Empty(live.DocumentsAt(excluded));
+        Assert.Equal(2, live.Server.LoadAttemptCount);
+    }
+
+    [Fact]
     public async Task FileInObjDirectory_NoChange()
     {
         await using var live = await LiveSampleSolution.StartAsync();
 
         live.WriteFile("src/Sample.Domain/obj/Scratch.cs", "public sealed class ObjOnly { }");
-        await Task.Delay(QuietPeriod);
+        await WaitForSentinelAsync(live);
 
         Assert.Empty(await live.SymbolsAsync("ObjOnly"));
         Assert.Equal(1, live.Server.LoadAttemptCount);
@@ -253,5 +276,20 @@ public sealed class DaemonFileSetSyncIntegrationTests(ITestOutputHelper output)
 
         live.WriteFile("src/Sample.Domain/AfterRecovery.cs", "namespace Sample.Domain; public sealed class AfterRecovery { }");
         await LiveSampleSolution.EventuallyAsync(async () => (await live.SymbolsAsync("AfterRecovery")).Count > 0);
+    }
+
+    /// <summary>
+    /// Positive control for "nothing happens" tests: edits an existing document
+    /// after the change under test and waits until the edit is applied, so the
+    /// watcher and the queue have processed the earlier events too.
+    /// </summary>
+    private static async Task WaitForSentinelAsync(LiveSampleSolution live)
+    {
+        var sentinel = live.PathOf("src/Sample.Domain/Entities/Entity.cs");
+        var marker = "// sentinel " + Guid.NewGuid().ToString("N");
+        File.AppendAllText(sentinel, marker + "\n");
+        await LiveSampleSolution.EventuallyAsync(async () =>
+            (await live.DocumentsAt(sentinel)[0].GetTextAsync()).ToString().Contains(marker));
+        await Task.Delay(QuietPeriod); // also let a scheduled full reload start, if one was (wrongly) scheduled
     }
 }

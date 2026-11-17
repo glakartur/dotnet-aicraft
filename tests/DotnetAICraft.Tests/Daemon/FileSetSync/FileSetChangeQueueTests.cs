@@ -113,6 +113,32 @@ public sealed class FileSetChangeQueueTests
     }
 
     [Fact]
+    public async Task DisposeAsync_WaitsForRunningFlush()
+    {
+        var time = new ManualTimeProvider();
+        var release = new TaskCompletionSource();
+        var finished = false;
+        var queue = new FileSetChangeQueue(
+            async _ =>
+            {
+                await release.Task;
+                finished = true;
+            },
+            Debounce,
+            MaxDelay,
+            time);
+        queue.Enqueue("/s/A.cs");
+        time.Advance(Debounce);
+
+        var dispose = queue.DisposeAsync().AsTask();
+        Assert.False(dispose.IsCompleted);
+
+        release.SetResult();
+        await dispose;
+        Assert.True(finished);
+    }
+
+    [Fact]
     public void Flush_CallbackThrows_QueueKeepsWorking()
     {
         var time = new ManualTimeProvider();

@@ -40,6 +40,24 @@ public sealed class DaemonRenameApplyTests
     }
 
     [Fact]
+    public async Task Rename_AfterFileDeletedAndRecreatedInSeparateBatches_ReturnsSolutionLoading()
+    {
+        await using var live = await LiveSampleSolution.StartAsync();
+        var file = live.PathOf("src/Sample.Domain/Events/OrderSubmittedEventArgs.cs");
+        var content = File.ReadAllText(file);
+        File.Delete(file);
+        await LiveSampleSolution.EventuallyAsync(() => live.DocumentsAt(file).Count == 0);
+        File.WriteAllText(file, content);
+        await LiveSampleSolution.EventuallyAsync(() => live.DocumentsAt(file).Count == 1);
+        var snapshot = SnapshotFiles(live.Root);
+
+        var response = await live.SendAsync("rename", new { symbol = RenamedSymbol, to = "IsBig" });
+
+        Assert.Equal("SOLUTION_LOADING", response.Error?.Code);
+        Assert.Equal(snapshot, SnapshotFiles(live.Root));
+    }
+
+    [Fact]
     public async Task Rename_AfterContentOnlyChange_AppliesAsBefore_AndKeepsFileWithoutBom()
     {
         await using var live = await LiveSampleSolution.StartAsync();

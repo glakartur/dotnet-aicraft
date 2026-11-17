@@ -74,6 +74,23 @@ public sealed class ProjectOwnershipResolverTests
     }
 
     [Fact]
+    public void Resolve_OwnerSafeButAnotherProjectLinksFiles_ReturnsFallback()
+    {
+        using var t = new FileSetTestSolution();
+        t.AddProject("src/A/A.csproj");
+        t.AddProject("src/B/B.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup><Compile Include="..\A\Shared.cs" Link="Shared.cs" /></ItemGroup>
+            </Project>
+            """);
+
+        var decision = new ProjectOwnershipResolver(t.Solution).Resolve(t.PathOf("src/A/Shared.cs"));
+
+        var fallback = Assert.IsType<OwnershipDecision.Fallback>(decision);
+        Assert.Contains("B.csproj", fallback.Reason);
+    }
+
+    [Fact]
     public void Resolve_LegacyProject_ReturnsFallback()
     {
         using var t = new FileSetTestSolution();
