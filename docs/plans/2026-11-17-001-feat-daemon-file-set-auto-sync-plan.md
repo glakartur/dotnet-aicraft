@@ -41,7 +41,7 @@ Potwierdzenia z kodu (dotyczą założenia 6 z dokumentu źródłowego):
 | R4 Seria zmian, stan spójny | U3 (kolejka wsadowa), U2 (jedno przypisanie `_solution`) |
 | R5 Fallback do pełnego reloadu | U2 (`ProjectOwnershipResolver`), U1 (niezawodny reload), założenie A5 |
 | R6 Pliki pomijane | U2/U3 (filtr artefaktów, uzgadnianie wg stanu końcowego) |
-| R7 Zgubione zdarzenia | U1 (`Error` watchera → reload), U3 (próg masowych zmian) |
+| R7 Zgubione zdarzenia | U1 (`Error` watchera → reload), U2 (próg masowych zmian) |
 | R8 Kompletność listy metadanych | U1 |
 | R9 Dokumentacja | U6 |
 | R10 Logi | U2, U3, U1 |
@@ -63,8 +63,9 @@ Potwierdzenia z kodu (dotyczą założenia 6 z dokumentu źródłowego):
 - Zmiany w zewnętrznych referencjach (NuGet restore, nowe DLL) poza R8.
 
 ### Odłożone do dalszej pracy
-- Przeładowanie solucji „w tle” z obsługą zapytań na starym snapshotcie do zakończenia reloadu (zobacz pytanie P1).
+- Przeładowanie solucji „w tle” z obsługą zapytań na starym snapshotcie do zakończenia reloadu (zobacz pytanie Q1).
 - Leniwe sprawdzenie przy zapytaniu (podejście C) jako stała siatka bezpieczeństwa. Plan używa tylko reakcji na zdarzenie `Error` (R7).
+- `rename` zapisuje tylko dokumenty zmienione przez `Renamer` (a nie wszystkie różnice `_solution` względem `MSBuildWorkspace`). To usunie ryzyko nadpisania nowszej treści pliku. Zmiana dotyczy istniejącego zachowania, więc jest poza zakresem tego planu.
 
 ---
 
@@ -75,30 +76,31 @@ Potwierdzenia z kodu (dotyczą założenia 6 z dokumentu źródłowego):
    - plik jest na dysku, nie ma go w solucji → dodanie (wg reguł właściciela);
    - pliku nie ma na dysku, jest w solucji → usunięcie ze wszystkich projektów (`GetDocumentIdsWithFilePath`);
    - pliku nie ma na dysku ani w solucji → brak akcji.
+   Dopasowanie ścieżek jest dokładne. `GetDocumentIdsWithFilePath` ignoruje wielkość liter także na Linux (sprawdzone w przeglądzie: Roslyn, `AdhocWorkspace`), więc reconciler filtruje jego wynik porównaniem `Document.FilePath` (ordinal na Linux, wg reguły OS w pozostałych przypadkach). Stan „plik jest na dysku” reconciler ustala wg rzeczywistej nazwy z dysku (np. wyliczenie plików w katalogu nadrzędnym), a nie przez `File.Exists`. Dzięki temu rename różniący się tylko wielkością liter daje usunięcie i dodanie także na systemach plików bez rozróżniania wielkości liter, a dwa pliki `Foo.cs` i `foo.cs` na Linux są osobnymi dokumentami.
    Tekst dokumentu kod tworzy ze strumienia pliku (`SourceText.From(Stream)`), aby wykryć BOM i kodowanie. Kod nie wymusza `Encoding.UTF8` (to dodałoby BOM przy zapisie w U4).
    Uzasadnienie: uzgadnianie wg stanu końcowego jest idempotentne. Dzięki temu zapis atomowy (plik tymczasowy + rename), pary `Created`+`Changed`, zdarzenia w dowolnej kolejności i zdarzenia w trakcie reloadu dają poprawny wynik (R6). Obecny debounce dla każdej ścieżki osobno daemon zastępuje jednym debounce dla całej serii.
-2. **Jedno przypisanie `_solution` na serię (R4).** Reconciler buduje nową `Solution` z bieżącej pod `_solutionLock` i przypisuje ją jeden raz. Handlery zapytań pobierają `GetSolution()` raz na zapytanie, więc zawsze widzą stary albo nowy snapshot, nigdy stan mieszany.
+2. **Jedno przypisanie `_solution` na serię (R4).** Reconciler buduje nową `Solution` z bieżącej i zwraca ją. `DaemonServer` wywołuje reconciler pod `_solutionLock` i przypisuje wynik do `_solution` jeden raz. Handlery zapytań pobierają `GetSolution()` raz na zapytanie, więc zawsze widzą stary albo nowy snapshot, nigdy stan mieszany.
 3. **Debounce z limitem.** Debounce kończący (ok. 400 ms, jak obecnie) z maksymalnym opóźnieniem (ok. 2 s). Ciągły strumień zdarzeń nie może opóźniać aktualizacji bez końca. Dokładne wartości ustala implementacja.
 4. **Reguły właściciela (R5, założenia 1–2 z dokumentu źródłowego):**
    - kandydaci = różne pliki `.csproj` z solucji, których katalog jest przodkiem pliku (porównanie ścieżek wg reguły OS jak w `IsBuildArtifactPath`);
-   - 0 kandydatów → gdy wszystkie projekty solucji mają „bezpieczną politykę Compile”, plik jest poza solucją i daemon go ignoruje (bez reloadu, wpis w logu). Gdy którykolwiek projekt jej nie ma (np. `<Compile Include="..\Shared\**\*.cs" />`), daemon wykonuje fallback, bo plik może należeć do tego projektu (zobacz pytanie P5);
-   - więcej niż 1 kandydat (projekty zagnieżdżone) → fallback (zobacz pytanie P2);
+   - 0 kandydatów → gdy wszystkie projekty solucji mają „bezpieczną politykę Compile”, plik jest poza solucją i daemon go ignoruje (bez reloadu, wpis w logu). Gdy którykolwiek projekt jej nie ma (np. `<Compile Include="..\Shared\**\*.cs" />`), daemon wykonuje fallback, bo plik może należeć do tego projektu (zobacz pytanie Q5);
+   - więcej niż 1 kandydat (projekty zagnieżdżone) → fallback (zobacz pytanie Q2);
    - 1 kandydat → dodanie do **wszystkich** instancji `Project` z tym `FilePath` (multi-targeting daje osobny projekt dla każdego TFM), pod warunkiem że projekt ma „bezpieczną politykę Compile”;
    - „bezpieczna polityka Compile” = plik projektu jest SDK-style (atrybut `Sdk`, element `<Sdk>` lub `Import Sdk=`) i ani projekt, ani pliki `Directory.Build.props/targets` (szukane w górę od katalogu projektu do korzenia systemu plików, tak jak robi to MSBuild) nie zawierają jawnych elementów `Compile` (`Include`/`Remove`/`Update`) ani właściwości `EnableDefaultCompileItems`, `EnableDefaultItems`, `DefaultItemExcludes`, `DefaultExcludesInProjectFolder`. Gdy warunek nie jest spełniony → fallback. To jest heurystyka tekstowa/XML, nie ewaluacja MSBuild (poza zakresem). Resolver czyta pliki przy każdej serii z dodaniem pliku (bez cache: koszt jest mały, a cache mógłby dać stary wynik);
    - plik w ścieżce z segmentem, który zaczyna się od `.` (ukryty katalog), lub w `obj/`, `bin/` → ignorowany, tak jak w domyślnych wykluczeniach SDK.
-5. **Fallback w serii.** Gdy jedna ścieżka w serii wymaga fallbacku, daemon odrzuca całą serię i planuje pełny reload (pełny reload i tak odczyta dysk). Ten sam wynik daje seria, w której liczba ścieżek **zmieniających zbiór plików** (dodanie lub usunięcie dokumentu; zmiany treści się nie liczą) jest większa niż próg masowych zmian (np. `git checkout`). Dzięki temu `dotnet format` na setkach plików nie powoduje reloadu. Wartość progu ustala implementacja, rząd wielkości: kilkaset ścieżek.
-6. **Zdarzenia katalogów (R3).** Watcher `*.cs` nie widzi zmiany nazwy ani usunięcia katalogu. Watcher bez filtra (obecny watcher metadanych) dostaje `NotifyFilters.DirectoryName` (bez tej flagi nie zgłasza zdarzeń katalogów). Dla `Deleted`/`Renamed`/`Created` ścieżki, która nie jest plikiem metadanych ani artefaktem (`obj/`, `bin/`, `.git/`, ukryte katalogi), watcher dodaje do kolejki **znacznik katalogu** (starą i nową ścieżkę). Reconciler rozwija znacznik w chwili opróżnienia serii: dokumenty solucji pod prefiksem plus pliki `*.cs` na dysku pod prefiksem. Uzasadnienie: na Linux watcher dodaje obserwację nowego katalogu dopiero po zdarzeniu `Created`, więc plik zapisany od razu po `mkdir` może nie dać zdarzenia. Rozwinięcie wg stanu końcowego dysku go znajdzie. Daemon nie robi pełnego reloadu przy przeniesieniu katalogu (zobacz pytanie P4).
+5. **Fallback w serii.** Gdy jedna ścieżka w serii wymaga fallbacku, daemon odrzuca całą serię i planuje pełny reload (pełny reload i tak odczyta dysk). Ten sam wynik daje seria, w której liczba ścieżek **zmieniających zbiór plików** (dodanie lub usunięcie dokumentu; zmiany treści się nie liczą) jest większa niż próg masowych zmian (np. `git checkout`). Dzięki temu `dotnet format` na setkach plików nie powoduje reloadu. Wartość progu ustala implementacja, rząd wielkości: kilkaset ścieżek. Próg liczy **reconciler** (po rozwinięciu znaczników katalogów i klasyfikacji dysk/solucja), a nie kolejka. Kolejka nie zna stanu solucji, więc nie odróżni dodania od zmiany treści (edytory z zapisem atomowym zgłaszają `Created` także przy edycji).
+6. **Zdarzenia katalogów (R3).** Watcher `*.cs` nie widzi zmiany nazwy ani usunięcia katalogu. Watcher bez filtra (obecny watcher metadanych) dostaje `NotifyFilters.DirectoryName` (bez tej flagi nie zgłasza zdarzeń katalogów). Dla `Deleted`/`Renamed`/`Created` ścieżki, która nie jest plikiem metadanych ani artefaktem (`obj/`, `bin/`, `.git/`, ukryte katalogi), watcher dodaje do kolejki **znacznik katalogu** (starą i nową ścieżkę). `FileSystemEventArgs` nie mówi, czy ścieżka jest katalogiem, dlatego znacznik dostaje też każda inna ścieżka spoza filtra (np. `.json`, plik tymczasowy edytora); rozwinięcie takiego znacznika daje pusty wynik. Nazwa z kropką (np. `Sample.Domain/`) też jest znacznikiem — kryterium nie zależy od rozszerzenia. Reconciler rozwija znacznik w chwili opróżnienia serii: dokumenty solucji pod prefiksem plus pliki `*.cs` na dysku pod prefiksem. Pliki na dysku wylicza tylko wtedy, gdy katalog istnieje (`Directory.Exists`); w przeciwnym razie używa tylko dokumentów solucji. Dopasowanie prefiksu zawsze kończy się separatorem (`src/Foo/` nie obejmuje `src/FooBar/`). Uzasadnienie: na Linux watcher dodaje obserwację nowego katalogu dopiero po zdarzeniu `Created`, więc plik zapisany od razu po `mkdir` może nie dać zdarzenia. Rozwinięcie wg stanu końcowego dysku go znajdzie. Daemon nie robi pełnego reloadu przy przeniesieniu katalogu (zobacz pytanie Q4).
 7. **Pełny reload zawsze idzie przez `StartBackgroundLoad`.** Watcher metadanych, fallback reconcilera i `Error` watchera używają tej samej ścieżki co `server reload` (łańcuch zadań, poprzedzony debounce). Kod usuwa `_metadataReloadSingleFlight`, więc daemon nie gubi żądania w trakcie reloadu.
-8. **`rename` zachowuje `TryApplyChanges`, ale nie działa na rozjechanym zbiorze dokumentów (U4).** Decyzja użytkownika (Q3, opcja 2). Pod `_solutionLock` `rename` (bez `--dry-run`) porównuje zbiór dokumentów `_solution` (po `FilePath` i projekcie) ze zbiorem w `_workspace.CurrentSolution`. Gdy zbiory się różnią (dokument dodany lub usunięty w pamięci), `rename` nie zapisuje nic na dysk: planuje pełny reload przez `StartBackgroundLoad` i zwraca `SOLUTION_LOADING`. Agent powtarza `rename` po reloadzie. Gdy zbiory są równe, `TryApplyChanges` działa jak dotąd, bez ryzyka zmiany `.csproj`. Kod pobiera `_solution`, rozwiązuje symbol i wykonuje `Renamer` **pod** `_solutionLock`, aby przypisanie nie cofnęło serii reconcilera zastosowaną w międzyczasie.
+8. **`rename` zachowuje `TryApplyChanges`, ale nie działa na rozjechanym zbiorze dokumentów (U4).** Decyzja użytkownika (Q3, opcja 2). Pod `_solutionLock` `rename` (bez `--dry-run`) porównuje zbiór dokumentów `_solution` (po `FilePath` i projekcie) ze zbiorem w `_workspace.CurrentSolution`. Gdy zbiory się różnią (dokument dodany lub usunięty w pamięci), `rename` nie zapisuje nic na dysk: od razu wywołuje `StartBackgroundLoad` (bez debounce, jak `HandleReload`; stan `Loading` jest widoczny przed odpowiedzią) i zwraca `SOLUTION_LOADING`. Agent powtarza `rename` po reloadzie. Gdy zbiory są równe, `TryApplyChanges` działa jak dotąd, bez ryzyka zmiany `.csproj`. Kod pobiera `_solution`, rozwiązuje symbol i wykonuje `Renamer` **pod** `_solutionLock`, aby przypisanie nie cofnęło serii reconcilera zastosowaną w międzyczasie.
 9. **Nowe klasy poza `DaemonServer.cs`.** `DaemonServer.cs` ma ok. 2400 linii. Logikę uzgadniania i reguł właściciela kod umieszcza w osobnym folderze `src/AICraftDaemon/Daemon/FileSetSync/`. Te klasy można testować bez gniazda i bez watcherów.
 
 ## Założenia (Q1, Q2, Q4, Q5: rekomendacje potwierdzone przez użytkownika; Q3: opcja 2 wybrana przez użytkownika)
 
-- A1. Podczas pełnego reloadu (fallback, R7, R8) zapytania dostają `SOLUTION_LOADING`, tak jak teraz przy zmianie `.csproj`. Plan uznaje to za zgodne z R4 (brak stanu mieszanego). (P1)
-- A2. Projekty zagnieżdżone (katalog projektu wewnątrz katalogu innego projektu) → fallback, a nie „najbliższy przodek”. To zawęża założenie 2 z dokumentu źródłowego na rzecz założenia 5 (poprawność ma priorytet), bo domyślny glob zewnętrznego projektu SDK też obejmuje pliki projektu wewnętrznego. (P2)
-- A3. (Q3, opcja 2) `rename` zostaje przy `TryApplyChanges`. Gdy zbiór dokumentów w pamięci różni się od `MSBuildWorkspace`, `rename` robi najpierw pełny reload i zwraca `SOLUTION_LOADING`. (P3)
-- A4. Przeniesienie lub zmiana nazwy katalogu jest obsługiwana przyrostowo (rozwinięcie znacznika katalogu), a nie pełnym reloadem. (P4)
-- A5. Plik bez projektu nadrzędnego jest ignorowany, gdy wszystkie projekty mają bezpieczną politykę Compile; w przeciwnym razie → fallback. To łączy R5 („brak projektu nadrzędnego” → fallback) z założeniem 2 z dokumentu źródłowego („ignoruje, bez reloadu”). (P5)
+- A1. Podczas pełnego reloadu (fallback, R7, R8) zapytania dostają `SOLUTION_LOADING`, tak jak teraz przy zmianie `.csproj`. Plan uznaje to za zgodne z R4 (brak stanu mieszanego). (Q1)
+- A2. Projekty zagnieżdżone (katalog projektu wewnątrz katalogu innego projektu) → fallback, a nie „najbliższy przodek”. To zawęża założenie 2 z dokumentu źródłowego na rzecz założenia 5 (poprawność ma priorytet), bo domyślny glob zewnętrznego projektu SDK też obejmuje pliki projektu wewnętrznego. (Q2)
+- A3. (Q3, opcja 2) `rename` zostaje przy `TryApplyChanges`. Gdy zbiór dokumentów w pamięci różni się od `MSBuildWorkspace`, `rename` robi najpierw pełny reload i zwraca `SOLUTION_LOADING`. (Q3)
+- A4. Przeniesienie lub zmiana nazwy katalogu jest obsługiwana przyrostowo (rozwinięcie znacznika katalogu), a nie pełnym reloadem. (Q4)
+- A5. Plik bez projektu nadrzędnego jest ignorowany, gdy wszystkie projekty mają bezpieczną politykę Compile; w przeciwnym razie → fallback. To łączy R5 („brak projektu nadrzędnego” → fallback) z założeniem 2 z dokumentu źródłowego („ignoruje, bez reloadu”). (Q5)
 
 ---
 
@@ -109,16 +111,16 @@ Potwierdzenia z kodu (dotyczą założenia 6 z dokumentu źródłowego):
 ```mermaid
 flowchart LR
   W1["FileSystemWatcher *.cs<br/>Created/Changed/Deleted/Renamed"] --> Q
-  W2["FileSystemWatcher (bez filtra)<br/>katalogi + metadane"] -->|katalog| X["rozwinięcie do ścieżek .cs"] --> Q
+  W2["FileSystemWatcher (bez filtra)<br/>katalogi + metadane"] -->|znacznik katalogu| Q
   W2 -->|metadane .sln/.slnx/.csproj/...props| R
   W1 -->|Error| R
   W2 -->|Error| R
-  Q["FileSetChangeQueue<br/>debounce ~400 ms, max ~2 s"] --> C{"SolutionFileSetReconciler<br/>(pod _solutionLock)"}
-  C -->|Applied: nowa Solution| S["_solution = nowa (1 przypisanie)"]
+  Q["FileSetChangeQueue<br/>debounce ~400 ms, max ~2 s"] --> C{"SolutionFileSetReconciler<br/>rozwinięcie znaczników, klasyfikacja, próg<br/>(wywołany pod _solutionLock)"}
+  C -->|Applied: nowa Solution| S["DaemonServer: _solution = nowa (1 przypisanie)"]
   C -->|Fallback(powód) / próg| R["ScheduleFullReload(powód)<br/>debounce → StartBackgroundLoad"]
 ```
 
-Wynik reconcilera (szkic): `Applied(newSolution, added[], removed[], updated[])` | `NoChange` | `Fallback(reason)`.
+Wynik reconcilera (szkic): `Applied(newSolution, added[], removed[], updated[], retry[])` | `NoChange(retry[])` | `Fallback(reason)`. `retry[]` = ścieżki z błędem I/O do jednokrotnego ponowienia.
 
 ---
 
@@ -150,7 +152,7 @@ flowchart TB
 **Podejście:**
 - Dodać `.slnx` i `Directory.Packages.props` do `IsMetadataReloadCandidate`. Zmienić metodę z `private` na `internal` (testy mają `InternalsVisibleTo`).
 - Zmienić nazwę `ScheduleMetadataReload` na `ScheduleFullReload(string reason)`. Po debounce metoda wywołuje `StartBackgroundLoad()` zamiast `TriggerMetadataReloadAsync`. Usunąć `_metadataReloadSingleFlight`. Zapisać w logu `Full reload scheduled: <reason>`.
-- Podłączyć `Error` obu watcherów do handlera, który: zapisuje błąd w logu; gdy watcher jest zatrzymany (`EnableRaisingEvents == false` lub błąd inny niż przepełnienie bufora) zwalnia i tworzy watcher ponownie; potem wywołuje `ScheduleFullReload("watcher error: …")`. Bez ponownego utworzenia daemon po jednym reloadzie zostałby bez watchera (R7).
+- Podłączyć `Error` obu watcherów do handlera, który: zapisuje błąd w logu; gdy watcher jest zatrzymany (`EnableRaisingEvents == false` lub błąd inny niż przepełnienie bufora) zwalnia i tworzy watcher ponownie; potem wywołuje `ScheduleFullReload("watcher error: …")`. Bez ponownego utworzenia daemon po jednym reloadzie zostałby bez watchera (R7). Ponowne utworzenie jest w `try/catch`: błąd (np. katalog solucji zniknął) idzie do logu (`Watcher recreate failed`) i nie kończy procesu daemona. Po rozpoczęciu zamykania (`DisposeAsync`) handler nie tworzy watchera ponownie. Pełny reload jest planowany niezależnie od wyniku ponownego utworzenia.
 - Zwiększyć `InternalBufferSize` (np. 64 KB). To działa tylko na Windows; na Linux limit ustawia `fs.inotify.max_queued_events`.
 - Watcher bez filtra odrzuca ścieżki `obj/`, `bin/`, `.git/` przed jakąkolwiek pracą, aby build i `git` nie dawały pracy ani reloadów.
 - Obsłużyć `Deleted` w watcherze metadanych (usunięcie `.csproj`/`.slnx` też wymaga reloadu). Obecnie kod obsługuje tylko `Changed`/`Created`/`Renamed`.
@@ -163,6 +165,8 @@ flowchart TB
 - Wywołanie `ScheduleFullReload` w trakcie trwającego ładowania → po jego zakończeniu daemon wykona drugie ładowanie (regresja dla usuniętego `WaitAsync(0)`). Weryfikacja przez licznik prób ładowania lub `LastLoadAttemptAt` na nieistniejącej solucji, jak w `DaemonReloadTests`.
 - Zdarzenie `Error` watchera → status przechodzi w `loading` (wyzwalacz wywołany przez hook testowy lub bezpośrednio przez metodę `internal`).
 - Zdarzenie `Error` dla zatrzymanego watchera → kod tworzy nowy watcher; następna zmiana pliku `.cs` jest wykryta.
+- Ponowne utworzenie watchera rzuca wyjątek (katalog nie istnieje) → wpis w logu, daemon działa dalej, reload zaplanowany.
+- Zdarzenie `Error` po rozpoczęciu zamykania → brak nowego watchera.
 
 **Weryfikacja:** zmiana `.slnx` lub `Directory.Packages.props` w działającym daemonie powoduje reload. Żaden wyzwalacz w trakcie reloadu nie zostaje utracony.
 
@@ -187,7 +191,9 @@ flowchart TB
 - Kolejność w serii: najpierw usunięcia, potem dodania; ścieżki porównywać dokładnie (`Document.FilePath`, ordinal na Linux). To chroni rename różniący się tylko wielkością liter.
 - Filtr artefaktów i ukrytych katalogów działa też w reconcilerze (także dla ścieżek z rozwinięcia katalogu). Usunięcie `obj/` (np. `git clean -xdf`) nie może usunąć dokumentów generowanych, np. `GlobalUsings.g.cs`.
 - Rozwinięcie znaczników katalogów (decyzja 6) jest w reconcilerze, w chwili opróżnienia serii.
-- Błąd I/O przy odczycie (plik zablokowany) → ścieżka wraca do kolejki raz. Przy kolejnym błędzie → wpis w logu i pominięcie (obecne zachowanie: `File update error`).
+- Próg masowych zmian (decyzja 5) jest w reconcilerze: liczy ścieżki sklasyfikowane jako dodanie lub usunięcie i zwraca `Fallback("mass change")`.
+- Dopasowanie ścieżek dokładne (decyzja 1): wynik `GetDocumentIdsWithFilePath` filtrowany po `Document.FilePath`, istnienie pliku wg rzeczywistej nazwy z dysku.
+- Błąd I/O przy odczycie (plik zablokowany) → reconciler zwraca ścieżkę w `retry[]`, a `DaemonServer` dodaje ją do kolejki raz. Przy kolejnym błędzie → wpis w logu i pominięcie (obecne zachowanie: `File update error`).
 - `ProjectOwnershipResolver`: reguły z decyzji 4, bez cache.
 - Reconciler zwraca listy `added`/`removed`/`updated` i powód fallbacku. `DaemonServer` zapisuje je w logu (`Added: <plik> → <projekt>`, `Removed: <plik>`, `Updated: <plik>`, `Fallback: <powód>`).
 
@@ -201,7 +207,7 @@ flowchart TB
 - Rename w jednej serii: stara ścieżka nie istnieje, nowa istnieje → usunięcie + dodanie, jedno `Applied`. (R3)
 - Przeniesienie między projektami A → B → dokument jest tylko w B. (R3)
 - Multi-target: dwa `Project` z tym samym `FilePath` → dokument dodany do obu.
-- Plik poza katalogami projektów → `NoChange` (ignorowany, bez fallbacku).
+- Plik poza katalogami projektów, gdy wszystkie projekty mają bezpieczną politykę Compile → `NoChange` (ignorowany, bez fallbacku). (A5)
 - Projekty zagnieżdżone (`src/A/A.csproj` i `src/A/Sub/Sub.csproj`, plik w `Sub`) → `Fallback("overlapping projects")`. (R5, A2)
 - Projekt legacy (bez `Sdk`) → `Fallback`. Projekt z `<Compile Remove="…">` → `Fallback`. `Directory.Build.props` z `EnableDefaultCompileItems` → `Fallback`. (R5)
 - Właściciel jest projektem `.vbproj`/`.fsproj` → ignorowany.
@@ -216,6 +222,12 @@ flowchart TB
 - Ścieżka jest na dysku i w solucji, tekst bez zmian → `NoChange`. Pusty odczyt istniejącego dokumentu → brak aktualizacji.
 - Seria z jedną ścieżką fallback i innymi poprawnymi → cała seria `Fallback`, `_solution` bez zmian. (R4/R5)
 - Rename różniący się tylko wielkością liter (`Foo.cs` → `foo.cs`) na Linux, Windows i macOS → jeden dokument z nową ścieżką.
+- Linux: `Foo.cs` i `foo.cs` istnieją obok siebie, usunięcie `foo.cs` → `Foo.cs` zostaje w solucji.
+- Znacznik katalogu dla ścieżki, która nie istnieje lub jest plikiem (`notes.json`) → `NoChange`, bez wyjątku.
+- Znacznik `src/Foo` nie dotyka dokumentów w `src/FooBar/`.
+- Przeniesienie katalogu z kropką w nazwie (`Sample.Domain/Models` → `Sample.Domain/Entities`) → nowe ścieżki dokumentów.
+- Liczba dodań/usunięć powyżej progu → `Fallback("mass change")`. Ta sama liczba zmian samej treści → `Applied` bez fallbacku. (decyzja 5)
+- Plik zablokowany przy odczycie → ścieżka w `retry[]`, pozostałe zmiany serii zastosowane.
 
 **Weryfikacja:** wszystkie testy jednostkowe przechodzą. Reconciler nie ma zależności od `FileSystemWatcher` ani od gniazda.
 
@@ -233,10 +245,10 @@ flowchart TB
 - Test: `tests/DotnetAICraft.Tests/Daemon/FileSetSync/FileSetChangeQueueTests.cs`
 
 **Podejście:**
-- `FileSetChangeQueue`: zbiór ścieżek bez duplikatów, debounce kończący z maksymalnym opóźnieniem (decyzja 3), próg masowych zmian (decyzja 5). Wstrzykiwany `TimeProvider` lub opóźnienie, aby testy były deterministyczne. Jedno opróżnianie kolejki w danej chwili. Ścieżki, które przyjdą w trakcie opróżniania, trafiają do następnej serii.
+- `FileSetChangeQueue`: zbiór ścieżek i znaczników katalogów bez duplikatów, debounce kończący z maksymalnym opóźnieniem (decyzja 3). Kolejka nie liczy progu masowych zmian (robi to reconciler, decyzja 5). Wstrzykiwany `TimeProvider` lub opóźnienie, aby testy były deterministyczne. Jedno opróżnianie kolejki w danej chwili. Ścieżki, które przyjdą w trakcie opróżniania, trafiają do następnej serii.
 - Watcher `*.cs`: `Created`/`Changed`/`Deleted` → `Enqueue(FullPath)`. `Renamed` → `Enqueue(OldFullPath)` i `Enqueue(FullPath)`, gdy którakolwiek ma rozszerzenie `.cs`. Filtr artefaktów przed dodaniem do kolejki.
-- Watcher bez filtra: dodać `NotifyFilters.DirectoryName`. Zdarzenia `Created`/`Changed`/`Renamed` plików `.cs` → `Enqueue(FullPath)` (i `OldFullPath`), aby pokryć np. `Foo.tmp` → `Foo.cs`. Zdarzenia katalogów (ścieżka bez rozszerzenia `.cs`, nie metadane, nie artefakt) → `EnqueueDirectory(old, new)` (decyzja 6). Kolejka zbiera znaczniki; rozwija je reconciler.
-- `ApplyFileSetBatchAsync`: pod `_solutionLock` wywołuje reconciler. Gdy solucja nie jest załadowana (`Loading`/`Unloaded`) → kod pomija serię. To jest bezpieczne: `TryLoadSolutionAsync` trzyma `_solutionLock` przez cały load, a stan `Loading` widoczny pod blokadą oznacza ładowanie w łańcuchu, które dopiero odczyta dysk. `Applied` → jedno przypisanie `_solution` i logi. `Fallback` → `ScheduleFullReload(reason)`.
+- Watcher bez filtra: dodać `NotifyFilters.DirectoryName`. Zdarzenia `Created`/`Changed`/`Renamed` plików `.cs` → `Enqueue(FullPath)` (i `OldFullPath`), aby pokryć np. `Foo.tmp` → `Foo.cs`. Zdarzenia `Created`/`Deleted`/`Renamed` dla ścieżki, która nie jest plikiem `.cs`, plikiem metadanych ani artefaktem → `EnqueueDirectory(old, new)` (decyzja 6; kryterium nie zależy od rozszerzenia, bo katalog może mieć kropkę w nazwie). Kolejka zbiera znaczniki; rozwija je reconciler.
+- `ApplyFileSetBatchAsync`: pod `_solutionLock` wywołuje reconciler. Gdy solucja nie jest załadowana (`Loading`/`Unloaded`) → kod pomija serię. To jest bezpieczne: `TryLoadSolutionAsync` trzyma `_solutionLock` przez cały load, a stan `Loading` widoczny pod blokadą oznacza ładowanie w łańcuchu, które dopiero odczyta dysk. `Applied` → jedno przypisanie `_solution` i logi. `Fallback` → `ScheduleFullReload(reason)`. Ścieżki z `retry[]` wracają do kolejki raz.
 - Zachować obecne opóźnienie ok. 400 ms dla zmiany treści (kryterium sukcesu < ~1 s).
 
 **Wzorce:** obecny debounce w `ScheduleMetadataReload` (CTS + `Task.Delay`). Wzorzec „accept-then-load” w `StartBackgroundLoad`.
@@ -244,7 +256,7 @@ flowchart TB
 **Scenariusze testowe:**
 - Wiele `Enqueue` w oknie debounce → jedno opróżnienie z wszystkimi ścieżkami (bez duplikatów). (R4)
 - Ciągły strumień zdarzeń dłuższy niż maksymalne opóźnienie → opróżnienie najpóźniej po maksymalnym opóźnieniu.
-- Liczba ścieżek zmieniających zbiór plików powyżej progu → `Fallback`/pełny reload. Ta sama liczba zmian samej treści → `Applied` bez reloadu.
+- Znacznik katalogu i ścieżka pliku w jednym oknie → jedno opróżnienie z obiema pozycjami.
 - `Enqueue` w trakcie opróżniania → ścieżka trafia do następnej serii, nie zostaje utracona.
 - Dispose kolejki → brak opróżnienia po zamknięciu daemona.
 
@@ -254,9 +266,9 @@ flowchart TB
 
 **Cel:** Po dodaniu lub usunięciu dokumentów w pamięci `rename` nie może zmienić `.csproj` ani zapisać na dysk plików spoza wyniku `Renamer`.
 
-**Wymagania:** założenie 4 z dokumentu źródłowego (zachowanie `rename` bez zmian), założenie 5
+**Wymagania:** założenie 4 z dokumentu źródłowego, zmienione decyzją Q3 (`rename` bez zmian tylko przy zgodnym zbiorze dokumentów), założenie 5
 
-**Zależności:** brak. U3 zależy od U4 (U4 jest wymagana przed wydaniem U3).
+**Zależności:** brak. U3 zależy od U4 (U4 musi być wydana razem z U3 lub wcześniej).
 
 **Pliki:**
 - Modyfikacja: `src/AICraftDaemon/Daemon/DaemonServer.cs` (`HandleRenameAsync`)
@@ -264,7 +276,7 @@ flowchart TB
 
 **Podejście:**
 - Pod `_solutionLock`: ponownie odczytać `_solution`. Rozwiązać symbol i wykonać `Renamer.RenameSymbolAsync` na tym snapshotcie. `UseCase.ResolveAsync` (podgląd/walidacja) może zostać poza blokadą.
-- Dla `rename` bez `--dry-run`, przed `TryApplyChanges`: porównać zbiór dokumentów `_solution` ze zbiorem `_workspace.CurrentSolution` (klucz: projekt + `FilePath`). Gdy się różnią → nie zapisywać nic, wywołać `ScheduleFullReload("rename: in-memory document set differs")` i zwrócić `SOLUTION_LOADING`. Gdy są równe → `TryApplyChanges` jak dotąd, potem `_solution = appliedSolution` pod tą samą blokadą.
+- Dla `rename` bez `--dry-run`, przed `TryApplyChanges`: porównać zbiór dokumentów `_solution` ze zbiorem `_workspace.CurrentSolution` (klucz: projekt + `FilePath`). Gdy się różnią → nie zapisywać nic, zapisać w logu `Full reload: rename: in-memory document set differs`, wywołać od razu `StartBackgroundLoad()` (bez debounce, aby stan `Loading` był widoczny przed odpowiedzią i ponowienia nie przesuwały reloadu) i zwrócić `SOLUTION_LOADING`. Gdy są równe → `TryApplyChanges` jak dotąd, potem `_solution = _workspace.CurrentSolution` pod tą samą blokadą (tak jak obecny kod).
 - `--dry-run` nie wymaga porównania (nie zapisuje).
 - Zanotować w kodzie, że `_workspace.CurrentSolution` nie jest źródłem prawdy po aktualizacjach w pamięci.
 
@@ -272,6 +284,8 @@ flowchart TB
 - Solucja z dokumentem dodanym w pamięci + `rename` symbolu → `SOLUTION_LOADING`, plik na dysku bez zmian, `.csproj` bez zmian, uruchomiony pełny reload. Po reloadzie powtórzony `rename` daje poprawny wynik.
 - Solucja bez różnic zbioru dokumentów (tylko zmiany treści) → `rename` działa jak dotąd.
 - `rename --dry-run` przy rozjechanym zbiorze → wynik podglądu, brak zapisu i brak reloadu.
+- Zaraz po odpowiedzi `SOLUTION_LOADING` polecenie `status` zwraca `loading` (reload startuje bez debounce).
+- Plik bez BOM po `rename` (tekst czytany ze strumienia, U2) dalej nie ma BOM.
 - Seria reconcilera dodaje dokument między `ResolveAsync` a pobraniem blokady przez `rename` → `rename` widzi różnicę i robi reload (nie cofa serii).
 
 **Weryfikacja:** `rename` po dodaniu pliku nie zmienia plików projektu i nie gubi dokumentów.
@@ -303,7 +317,7 @@ flowchart TB
 - Przeniesienie katalogu z plikami `.cs` wewnątrz projektu → wszystkie dokumenty mają nowe ścieżki, bez pełnego reloadu. (R3, decyzja 6)
 - `mkdir` nowego katalogu i od razu zapis pliku `.cs` w nim → dokument jest widoczny. (R1, decyzja 6)
 - Utworzenie 20 plików w jednej serii → wszystkie widoczne. Zapytanie w trakcie nie zwraca stanu częściowego (sprawdzić, że liczba dokumentów to stara albo nowa wartość). (R4)
-- Plik w katalogu poza projektami → brak zmiany i brak reloadu. Plik w projekcie z `<Compile Remove>` → status przechodzi w `loading`, potem `loaded`, plik jest widoczny wg reguł MSBuild. (R5)
+- Plik w katalogu poza projektami (wszystkie projekty fixture mają bezpieczną politykę Compile) → brak zmiany i brak reloadu. Plik w projekcie z `<Compile Remove>` → status przechodzi w `loading`, potem `loaded`, plik jest widoczny wg reguł MSBuild. (R5)
 - Plik w `obj/` → brak zmiany. (R6)
 - `unused` po dodaniu pliku, który używa wcześniej „nieużywanego” symbolu → symbol nie jest zgłaszany. (kryterium sukcesu)
 
@@ -350,6 +364,9 @@ flowchart TB
 | Wiele pełnych reloadów pod rząd (np. `git checkout` z wieloma `.csproj` i wieloma plikami `.cs` — reload z metadanych i reload z progu) | Debounce przed `StartBackgroundLoad`; dwa reloady są poprawne, ale podwajają okno `SOLUTION_LOADING` |
 | Przepełnienie bufora watchera bez filtra podczas `dotnet build` → częste pełne reloady | Odrzucanie `obj/`, `bin/`, `.git/` przed pracą; ręczny pomiar na dużej solucji przed wydaniem |
 | Testy integracyjne wymagają SDK .NET 10 (fixture `net10.0`) | Sprawdzić środowisko CI; `Trait` do wyłączenia |
+| Zmieniony `BaseIntermediateOutputPath`/`BaseOutputPath`/`UseArtifactsOutput`: generowane pliki `.cs` poza `obj/`/`bin/` mogą zostać dodane jako dokumenty | Resolver traktuje te właściwości jak naruszenie bezpiecznej polityki Compile → fallback (dopisać do listy w decyzji 4 przy implementacji) |
+| Duże katalogi narzędzi (`node_modules`, `TestResults`, `artifacts`) dają kosztowne rozwinięcie znaczników pod `_solutionLock` | Ręczny pomiar na dużej solucji; w razie potrzeby rozszerzyć listę odrzucanych katalogów |
+| (Istniejące zachowanie) `TryApplyChanges` zapisuje na dysk tekst wszystkich dokumentów różnych od `MSBuildWorkspace`, także tekst z aktualizacji watchera. Gdy plik zmienił się na dysku po ostatniej serii, a przed `rename`, `rename` może nadpisać nowszą treść | Bez zmian w tym planie (założenie 4: `rename` bez zmian). U4 pobiera snapshot pod `_solutionLock`, co zmniejsza okno. Zapisane w „Odłożone do dalszej pracy” |
 
 ## Odłożone do implementacji
 
@@ -357,6 +374,12 @@ flowchart TB
 - Dokładne nazwy metod i typów wyniku reconcilera.
 - Czy `FileSystemWatcher` z filtrem `*.cs` na Linux zgłasza `Renamed`, gdy tylko jedna z nazw ma rozszerzenie `.cs` (np. `Foo.tmp` → `Foo.cs`). Uzgadnianie wg stanu końcowego i zdarzenie `Created`/`Changed` z drugiego watchera powinny pokryć oba warianty. Implementacja to sprawdzi i doda test.
 - Jak wydzielić z `RunAsync` metodę dla testów integracyjnych (U5) bez zmiany ścieżki produkcyjnej.
+
+---
+
+## Pytania otwarte dla użytkownika
+
+Brak. Wszystkie pytania z poprzedniej rundy (Q1–Q5) mają odpowiedź użytkownika (sekcja „Decyzje użytkownika”). Pozostałe niewiadome są techniczne i należą do implementacji (sekcja „Odłożone do implementacji”).
 
 ---
 
