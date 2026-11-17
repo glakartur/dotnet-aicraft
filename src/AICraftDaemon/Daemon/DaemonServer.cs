@@ -133,6 +133,8 @@ public sealed class DaemonServer : IAsyncDisposable
 
     internal Task GetBackgroundLoadTaskForTesting() => GetBackgroundLoadTask();
 
+    internal Solution? CurrentSolutionForTesting => _solution;
+
     public DaemonServer(string solutionPath, DaemonIdleTimeoutSetting? idleTimeout)
         : this(solutionPath)
     {
