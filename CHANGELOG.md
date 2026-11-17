@@ -24,6 +24,16 @@
   never interleaved with debug noise.
 
 ### Changed
+- The daemon now detects added, deleted, renamed and moved `.cs` files (also
+  directory moves) and updates the in-memory solution in one step per batch.
+  Before, only edits of existing files were picked up, so `refs`, `symbols`,
+  `unused` and `diagnostics` silently answered against a stale file set. New
+  files whose owner project is not certain (legacy or nested projects, explicit
+  `Compile` items, `Directory.Build.*` overrides), large batches and file-watcher
+  errors trigger a full reload. `.slnx` and `Directory.Packages.props` changes now
+  also trigger a reload, and a reload requested during a running reload is no
+  longer dropped. `rename` right after a file-set change reloads first and returns
+  `SOLUTION_LOADING` instead of applying changes to a diverged workspace.
 - **Breaking (default stdout):** The default stdout format changed from
   pretty-printed JSON to the new `text` format described above. Scripts that
   parsed stdout as JSON must now pass `--format json` explicitly. The JSON
