@@ -55,7 +55,7 @@ Potwierdzenia z kodu (dotyczą założenia 6 z dokumentu źródłowego):
 - Synchronizacja zbioru plików `*.cs` w katalogu solucji (dodanie, usunięcie, rename, przeniesienie pliku lub katalogu).
 - Pełny reload jako fallback i przy utracie zdarzeń.
 - Rozszerzenie listy plików metadanych (`.slnx`, `Directory.Packages.props`).
-- Zabezpieczenie ścieżki `rename` przed rozjazdem między solucją w pamięci a `MSBuildWorkspace`.
+- Zabezpieczenie ścieżki `rename` przed rozjazdem między solucją w pamięci a `MSBuildWorkspace` (pełny reload przed `rename`, gdy zbiór dokumentów w pamięci różni się od stanu `MSBuildWorkspace`).
 
 ### Poza zakresem (z dokumentu źródłowego)
 - Pliki inne niż `.cs` (`.vb`, `.fs`, `.razor`, `.cshtml`, `.xaml`).
@@ -89,14 +89,14 @@ Potwierdzenia z kodu (dotyczą założenia 6 z dokumentu źródłowego):
 5. **Fallback w serii.** Gdy jedna ścieżka w serii wymaga fallbacku, daemon odrzuca całą serię i planuje pełny reload (pełny reload i tak odczyta dysk). Ten sam wynik daje seria, w której liczba ścieżek **zmieniających zbiór plików** (dodanie lub usunięcie dokumentu; zmiany treści się nie liczą) jest większa niż próg masowych zmian (np. `git checkout`). Dzięki temu `dotnet format` na setkach plików nie powoduje reloadu. Wartość progu ustala implementacja, rząd wielkości: kilkaset ścieżek.
 6. **Zdarzenia katalogów (R3).** Watcher `*.cs` nie widzi zmiany nazwy ani usunięcia katalogu. Watcher bez filtra (obecny watcher metadanych) dostaje `NotifyFilters.DirectoryName` (bez tej flagi nie zgłasza zdarzeń katalogów). Dla `Deleted`/`Renamed`/`Created` ścieżki, która nie jest plikiem metadanych ani artefaktem (`obj/`, `bin/`, `.git/`, ukryte katalogi), watcher dodaje do kolejki **znacznik katalogu** (starą i nową ścieżkę). Reconciler rozwija znacznik w chwili opróżnienia serii: dokumenty solucji pod prefiksem plus pliki `*.cs` na dysku pod prefiksem. Uzasadnienie: na Linux watcher dodaje obserwację nowego katalogu dopiero po zdarzeniu `Created`, więc plik zapisany od razu po `mkdir` może nie dać zdarzenia. Rozwinięcie wg stanu końcowego dysku go znajdzie. Daemon nie robi pełnego reloadu przy przeniesieniu katalogu (zobacz pytanie P4).
 7. **Pełny reload zawsze idzie przez `StartBackgroundLoad`.** Watcher metadanych, fallback reconcilera i `Error` watchera używają tej samej ścieżki co `server reload` (łańcuch zadań, poprzedzony debounce). Kod usuwa `_metadataReloadSingleFlight`, więc daemon nie gubi żądania w trakcie reloadu.
-8. **`rename` nie przekazuje różnic zbioru plików do `MSBuildWorkspace` (U4).** `rename` zapisuje na dysk tylko dokumenty zmienione przez `Renamer` (różnica `appliedSolution` względem `solution`) i ustawia `_solution = appliedSolution`. Kod pobiera `_solution`, rozwiązuje symbol i wykonuje `Renamer` **pod** `_solutionLock`. Obecny kod bierze snapshot przed blokadą, więc przypisanie mogłoby cofnąć serię reconcilera zastosowaną w międzyczasie. Zachowanie widoczne dla użytkownika się nie zmienia: ten sam wynik na dysku i w zapytaniach. Intencja założenia 4 z dokumentu źródłowego zostaje zachowana. Zmienia się tylko mechanizm (zobacz pytanie P3).
+8. **`rename` zachowuje `TryApplyChanges`, ale nie działa na rozjechanym zbiorze dokumentów (U4).** Decyzja użytkownika (Q3, opcja 2). Pod `_solutionLock` `rename` (bez `--dry-run`) porównuje zbiór dokumentów `_solution` (po `FilePath` i projekcie) ze zbiorem w `_workspace.CurrentSolution`. Gdy zbiory się różnią (dokument dodany lub usunięty w pamięci), `rename` nie zapisuje nic na dysk: planuje pełny reload przez `StartBackgroundLoad` i zwraca `SOLUTION_LOADING`. Agent powtarza `rename` po reloadzie. Gdy zbiory są równe, `TryApplyChanges` działa jak dotąd, bez ryzyka zmiany `.csproj`. Kod pobiera `_solution`, rozwiązuje symbol i wykonuje `Renamer` **pod** `_solutionLock`, aby przypisanie nie cofnęło serii reconcilera zastosowaną w międzyczasie.
 9. **Nowe klasy poza `DaemonServer.cs`.** `DaemonServer.cs` ma ok. 2400 linii. Logikę uzgadniania i reguł właściciela kod umieszcza w osobnym folderze `src/AICraftDaemon/Daemon/FileSetSync/`. Te klasy można testować bez gniazda i bez watcherów.
 
-## Założenia (przyjęte bez decyzji użytkownika — patrz „Pytania otwarte”)
+## Założenia (Q1, Q2, Q4, Q5: rekomendacje potwierdzone przez użytkownika; Q3: opcja 2 wybrana przez użytkownika)
 
 - A1. Podczas pełnego reloadu (fallback, R7, R8) zapytania dostają `SOLUTION_LOADING`, tak jak teraz przy zmianie `.csproj`. Plan uznaje to za zgodne z R4 (brak stanu mieszanego). (P1)
 - A2. Projekty zagnieżdżone (katalog projektu wewnątrz katalogu innego projektu) → fallback, a nie „najbliższy przodek”. To zawęża założenie 2 z dokumentu źródłowego na rzecz założenia 5 (poprawność ma priorytet), bo domyślny glob zewnętrznego projektu SDK też obejmuje pliki projektu wewnętrznego. (P2)
-- A3. `rename` zapisuje zmienione dokumenty bezpośrednio, bez `TryApplyChanges`. (P3)
+- A3. (Q3, opcja 2) `rename` zostaje przy `TryApplyChanges`. Gdy zbiór dokumentów w pamięci różni się od `MSBuildWorkspace`, `rename` robi najpierw pełny reload i zwraca `SOLUTION_LOADING`. (P3)
 - A4. Przeniesienie lub zmiana nazwy katalogu jest obsługiwana przyrostowo (rozwinięcie znacznika katalogu), a nie pełnym reloadem. (P4)
 - A5. Plik bez projektu nadrzędnego jest ignorowany, gdy wszystkie projekty mają bezpieczną politykę Compile; w przeciwnym razie → fallback. To łączy R5 („brak projektu nadrzędnego” → fallback) z założeniem 2 z dokumentu źródłowego („ignoruje, bez reloadu”). (P5)
 
@@ -250,9 +250,9 @@ flowchart TB
 
 **Weryfikacja:** testy kolejki przechodzą. Scenariusze end-to-end pokrywa U5.
 
-### U4. Ścieżka `rename` bez `TryApplyChanges` dla różnic zbioru plików
+### U4. `rename` po zmianie zbioru plików: pełny reload zamiast `TryApplyChanges` na rozjechanym stanie
 
-**Cel:** Po dodaniu dokumentów w pamięci `rename` nie może zmienić `.csproj` ani zapisać na dysk innych plików niż te, które zmienił `Renamer`.
+**Cel:** Po dodaniu lub usunięciu dokumentów w pamięci `rename` nie może zmienić `.csproj` ani zapisać na dysk plików spoza wyniku `Renamer`.
 
 **Wymagania:** założenie 4 z dokumentu źródłowego (zachowanie `rename` bez zmian), założenie 5
 
@@ -263,18 +263,20 @@ flowchart TB
 - Test: `tests/DotnetAICraft.Tests/Daemon/DaemonRenameApplyTests.cs` (nowy)
 
 **Podejście:**
-- Pod `_solutionLock`: ponownie odczytać `_solution`, rozwiązać symbol i wykonać `Renamer.RenameSymbolAsync` na tym snapshotcie. `UseCase.ResolveAsync` (podgląd/walidacja) może zostać poza blokadą.
-- Obliczyć zmienione dokumenty: `appliedSolution.GetChanges(solution)` → tylko zmienione dokumenty (bez dodanych i usuniętych). Zapisać ich tekst na dysk z zachowaniem kodowania (`SourceText.Encoding`; gdy brak — UTF-8 bez BOM). Ustawić `_solution = appliedSolution` pod tą samą blokadą.
-- Zapisy na dysk wywołają zdarzenia watchera. Reconciler zobaczy identyczny tekst i nie zrobi zmian (U2: „tekst bez zmian → `NoChange`”).
+- Pod `_solutionLock`: ponownie odczytać `_solution`. Rozwiązać symbol i wykonać `Renamer.RenameSymbolAsync` na tym snapshotcie. `UseCase.ResolveAsync` (podgląd/walidacja) może zostać poza blokadą.
+- Dla `rename` bez `--dry-run`, przed `TryApplyChanges`: porównać zbiór dokumentów `_solution` ze zbiorem `_workspace.CurrentSolution` (klucz: projekt + `FilePath`). Gdy się różnią → nie zapisywać nic, wywołać `ScheduleFullReload("rename: in-memory document set differs")` i zwrócić `SOLUTION_LOADING`. Gdy są równe → `TryApplyChanges` jak dotąd, potem `_solution = appliedSolution` pod tą samą blokadą.
+- `--dry-run` nie wymaga porównania (nie zapisuje).
 - Zanotować w kodzie, że `_workspace.CurrentSolution` nie jest źródłem prawdy po aktualizacjach w pamięci.
 
 **Scenariusze testowe:**
-- Solucja z dokumentem dodanym w pamięci (nie ma go w `_workspace.CurrentSolution`) + `rename` symbolu użytego w tym dokumencie → plik na dysku ma nową nazwę symbolu, `.csproj` bez zmian, `_solution` zawiera nowy tekst.
-- `rename --dry-run` → brak zapisu na dysk (regresja).
-- Plik z BOM/innym kodowaniem → kodowanie zostaje bez zmian. Plik bez BOM, edytowany na dysku po załadowaniu, potem `rename` → dalej bez BOM.
-- Seria reconcilera dodaje dokument między `ResolveAsync` a pobraniem blokady przez `rename` → po `rename` dokument dalej jest w `_solution`.
+- Solucja z dokumentem dodanym w pamięci + `rename` symbolu → `SOLUTION_LOADING`, plik na dysku bez zmian, `.csproj` bez zmian, uruchomiony pełny reload. Po reloadzie powtórzony `rename` daje poprawny wynik.
+- Solucja bez różnic zbioru dokumentów (tylko zmiany treści) → `rename` działa jak dotąd.
+- `rename --dry-run` przy rozjechanym zbiorze → wynik podglądu, brak zapisu i brak reloadu.
+- Seria reconcilera dodaje dokument między `ResolveAsync` a pobraniem blokady przez `rename` → `rename` widzi różnicę i robi reload (nie cofa serii).
 
-**Weryfikacja:** `rename` po dodaniu pliku daje poprawny wynik i nie zmienia plików projektu.
+**Weryfikacja:** `rename` po dodaniu pliku nie zmienia plików projektu i nie gubi dokumentów.
+
+---
 
 ### U5. Testy integracyjne na prawdziwej solucji
 
@@ -320,7 +322,7 @@ flowchart TB
 - Modyfikacja: `plugins/dotnet-aicraft/skills/dotnet-aicraft/references/commands/server.md` (sekcja `server reload`)
 - Modyfikacja: `CHANGELOG.md`
 
-**Podejście:** Krótki tekst (SKILL.md ma ograniczony budżet tokenów, zobacz `docs/plans/skill-token-footprint-optimization.md`). Treść: edycje oraz dodanie/usunięcie/rename plików `.cs` są wykrywane automatycznie; zmiany projektów i solucji (`.sln`, `.slnx`, `.csproj`, `Directory.*.props`) powodują automatyczny reload; `server reload` używać, gdy wynik jest podejrzany (np. dysk sieciowy, WSL2 z plikami na `/mnt`).
+**Podejście:** Krótki tekst (SKILL.md ma ograniczony budżet tokenów, zobacz `docs/plans/skill-token-footprint-optimization.md`). Treść: edycje oraz dodanie/usunięcie/rename plików `.cs` są wykrywane automatycznie; zmiany projektów i solucji (`.sln`, `.slnx`, `.csproj`, `Directory.*.props`) powodują automatyczny reload; `rename` zaraz po dodaniu lub usunięciu pliku może zwrócić `SOLUTION_LOADING`: powtórzyć po reloadzie; `server reload` używać, gdy wynik jest podejrzany (np. dysk sieciowy, WSL2 z plikami na `/mnt`).
 
 **Test expectation:** none -- tylko dokumentacja.
 
@@ -332,7 +334,8 @@ flowchart TB
 
 - **Agenci i użytkownicy CLI:** brak zmian kontraktu poleceń. Mniej przypadków cichych, złych odpowiedzi. Więcej pełnych reloadów w projektach legacy lub zagnieżdżonych (okno `SOLUTION_LOADING`).
 - **Wydajność:** zdarzenia `*.cs` są już przetwarzane. Nowy koszt to rozwinięcie znaczników katalogów i odczyt XML plików projektu przy dodaniu pliku. Oczekiwany koszt jest mały, ale nie jest zmierzony; sprawdzić ręcznie na dużej solucji.
-- **Współbieżność:** reconciler, reload i `rename` są serializowane przez `_solutionLock` (po U4 `rename` pobiera snapshot pod blokadą). Pełny reload jest łańcuchem przez `StartBackgroundLoad`.
+- **Współbieżność:** reconciler, reload i `rename` są serializowane przez `_solutionLock` (po U4 `rename` pobiera snapshot pod blokadą).
+- **`rename`:** po zmianie zbioru plików pierwszy `rename` może zwrócić `SOLUTION_LOADING` (zmiana widoczna dla użytkownika, wybór Q3). Pełny reload jest łańcuchem przez `StartBackgroundLoad`.
 - **Idle shutdown:** reload przez `StartBackgroundLoad` resetuje termin bezczynności (`ResetIdleDeadline` w `TryLoadSolutionAsync`), tak jak teraz.
 
 ## Ryzyka
@@ -342,7 +345,8 @@ flowchart TB
 | Heurystyka polityki Compile nie wykryje reguły (np. warunek w importowanym `.targets`) | Konserwatywne reguły; `server reload` zostaje w dokumentacji; projekty spoza heurystyki → fallback |
 | `FileSystemWatcher` gubi zdarzenia (WSL2 `/mnt`, dyski sieciowe) bez zdarzenia `Error` | Poza zakresem (podejście C odłożone); dokumentacja wskazuje `server reload` |
 | Testy integracyjne z watcherem są niestabilne w CI | Odpytywanie z limitem czasu, `Trait` do wyłączenia, logika w testach jednostkowych bez watchera (U2, U3) |
-| Zachowanie `MSBuildWorkspace.TryApplyChanges` przy dokumentach dodanych w pamięci nie jest potwierdzone empirycznie | U4 usuwa zależność od tego zachowania |
+| Zachowanie `MSBuildWorkspace.TryApplyChanges` przy dokumentach dodanych w pamięci nie jest potwierdzone empirycznie | U4: przy rozjeździe zbioru dokumentów `rename` robi pełny reload i nie wywołuje `TryApplyChanges` |
+| `rename` tuż po dodaniu pliku zwraca `SOLUTION_LOADING` (wolniej) | Akceptowane w Q3; agent powtarza polecenie po reloadzie; udokumentować w U6 |
 | Wiele pełnych reloadów pod rząd (np. `git checkout` z wieloma `.csproj` i wieloma plikami `.cs` — reload z metadanych i reload z progu) | Debounce przed `StartBackgroundLoad`; dwa reloady są poprawne, ale podwajają okno `SOLUTION_LOADING` |
 | Przepełnienie bufora watchera bez filtra podczas `dotnet build` → częste pełne reloady | Odrzucanie `obj/`, `bin/`, `.git/` przed pracą; ręczny pomiar na dużej solucji przed wydaniem |
 | Testy integracyjne wymagają SDK .NET 10 (fixture `net10.0`) | Sprawdzić środowisko CI; `Trait` do wyłączenia |
@@ -356,33 +360,9 @@ flowchart TB
 
 ---
 
-## Pytania otwarte dla użytkownika
+## Decyzje użytkownika
 
-Żadne pytanie nie blokuje implementacji. Plan przyjmuje rekomendowaną opcję (sekcja „Założenia”). Odpowiedź inna niż rekomendacja zmienia wskazane jednostki.
-
-**P1. (Założenia → A1; wymaganie R4) Co zapytanie dostaje w trakcie pełnego reloadu (fallback, R7, R8)?**
-- **(Rekomendowane)** `SOLUTION_LOADING` jak teraz przy zmianie `.csproj`. Bez dodatkowej pracy, brak stanu mieszanego.
-- Stary snapshot do zakończenia reloadu (ładowanie do nowego workspace i podmiana). Lepsze UX, ale większa zmiana w `TryLoadSolutionAsync` i więcej pamięci w trakcie reloadu. Wymaga nowej jednostki.
-
-**P2. (Założenia → A2; założenie 2 z dokumentu źródłowego) Plik w katalogu projektu zagnieżdżonego w katalogu innego projektu:**
-- **(Rekomendowane)** Pełny reload (fallback), bo domyślny glob SDK zewnętrznego projektu też obejmuje ten plik. Poprawność ma priorytet (założenie 5).
-- Dodanie tylko do najbliższego projektu (dosłownie wg założenia 2). Szybsze, ale może dać inny wynik niż MSBuild.
-
-**P3. (Założenia → A3; założenie 4 z dokumentu źródłowego) Mechanizm zapisu `rename`:**
-- **(Rekomendowane)** Zapis tylko dokumentów zmienionych przez `Renamer`, bez `TryApplyChanges`. Zachowanie widoczne dla użytkownika bez zmian, brak ryzyka zmiany `.csproj`.
-- Zostawić `TryApplyChanges` i przed `rename` wykonać pełny reload, gdy solucja w pamięci ma dodane lub usunięte dokumenty. Wolniejsze, ale bez zmiany mechanizmu.
-- Zostawić `TryApplyChanges` bez zmian (akceptacja ryzyka zmiany `.csproj` przez MSBuildWorkspace).
-
-Uwaga: niezależnie od wyboru `rename` musi pobierać snapshot pod `_solutionLock` (U4), bo inaczej cofa serie reconcilera.
-
-**P4. (Założenia → A4; wymaganie R3, decyzja 6) Przeniesienie lub zmiana nazwy katalogu z plikami `.cs`:**
-- **(Rekomendowane)** Obsługa przyrostowa: znacznik katalogu rozwijany w chwili opróżnienia serii. Szybko (bez okna `SOLUTION_LOADING`), ale więcej logiki i testów.
-- Pełny reload przy każdej zmianie katalogu z dokumentami. Prościej, zawsze zgodnie z MSBuild, ale okno `SOLUTION_LOADING` po każdym przeniesieniu katalogu. R3 w dokumencie źródłowym mówi tylko o plikach.
-
-**P5. (Założenia → A5; R5 i założenie 2 z dokumentu źródłowego) Nowy plik `.cs` bez projektu nadrzędnego:**
-- **(Rekomendowane)** Ignorować, gdy wszystkie projekty mają bezpieczną politykę Compile; w przeciwnym razie pełny reload. Łączy R5 i założenie 2.
-- Zawsze pełny reload (dosłownie wg R5). Bezpieczne, ale każdy plik `.cs` poza projektami (np. skrypty, przykłady) powoduje reload.
-- Zawsze ignorować (dosłownie wg założenia 2). Szybko, ale pliki z `Compile Include` spoza katalogu projektu nie będą widoczne.
+Użytkownik odpowiedział w wątkach przeglądu: Q1 = opcja 1 (`SOLUTION_LOADING`), Q2 = opcja 1 (fallback dla projektów zagnieżdżonych), Q3 = opcja 2 (`TryApplyChanges` + pełny reload przed `rename` przy rozjeździe), Q4 = opcja 1 (obsługa przyrostowa katalogów), Q5 = opcja 1 (ignorować lub fallback wg polityki Compile). Brak otwartych pytań.
 
 ---
 
