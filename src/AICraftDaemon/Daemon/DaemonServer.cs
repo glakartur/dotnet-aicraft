@@ -54,6 +54,7 @@ public sealed class DaemonServer : IAsyncDisposable
     private HashSet<string> _excludedByLastLoad = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _solutionLock = new(1, 1);
     private int _loadAttempts;
+    private int _fullReloadRetryCount; // guarded by _fullReloadLock
     // Tracks the in-flight (or last) accept-then-load task so reload can run the
     // load in the background instead of blocking the request, and so shutdown can
     // observe it. Guarded by _backgroundLoadLock.
@@ -133,6 +134,12 @@ public sealed class DaemonServer : IAsyncDisposable
 
     /// <summary>Delay before a failed watcher recreate is tried again.</summary>
     internal TimeSpan WatcherRecreateRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Base delay of the exponential backoff between automatic full reload retries.</summary>
+    internal TimeSpan FullReloadRetryBaseDelay { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Retries after a failed automatic full reload, before the daemon gives up.</summary>
+    internal const int MaxFullReloadRetries = 3;
 
     /// <summary>Trailing debounce of the file-set queue.</summary>
     internal TimeSpan FileSetDebounce { get; init; } = FileSetChangeQueue.DefaultDebounce;
@@ -838,7 +845,7 @@ public sealed class DaemonServer : IAsyncDisposable
     // silently piggy-backing on an older load that may predate the user's edit.
     // _solutionLock still serializes the actual load against file-change and
     // metadata-watcher reloads; awaiting the chain tail observes every queued load.
-    private DaemonLoadState StartBackgroundLoad()
+    private DaemonLoadState StartBackgroundLoad(Action<bool>? onCompleted = null)
     {
         lock (_backgroundLoadLock)
         {
@@ -850,12 +857,12 @@ public sealed class DaemonServer : IAsyncDisposable
             // Set Loading synchronously so an immediate `status` poll never
             // observes the pre-reload state before the task acquires _solutionLock.
             _loadState = DaemonLoadState.Loading;
-            _backgroundLoadTask = RunLoadAfterAsync(_backgroundLoadTask);
+            _backgroundLoadTask = RunLoadAfterAsync(_backgroundLoadTask, onCompleted);
             return DaemonLoadState.Loading;
         }
     }
 
-    private async Task RunLoadAfterAsync(Task prior)
+    private async Task RunLoadAfterAsync(Task prior, Action<bool>? onCompleted)
     {
         // Offload past the lock so the load never executes inline on the request
         // thread (TryLoadSolutionAsync runs synchronously until its first
@@ -864,7 +871,8 @@ public sealed class DaemonServer : IAsyncDisposable
         // The prior load swallows its own exceptions; guard anyway so a faulted
         // prior never breaks the chain.
         try { await prior.ConfigureAwait(false); } catch { /* prior owns its errors */ }
-        await TryLoadSolutionAsync().ConfigureAwait(false);
+        var loaded = await TryLoadSolutionAsync().ConfigureAwait(false);
+        onCompleted?.Invoke(loaded);
     }
 
     private Task GetBackgroundLoadTask()
@@ -1375,7 +1383,8 @@ public sealed class DaemonServer : IAsyncDisposable
 
     /// <summary>
     /// A watcher error can mean lost events (buffer overflow) or a dead watcher.
-    /// Always reload, because the in-memory solution may have missed changes.
+    /// Reload when the sender is the registered watcher, because the in-memory
+    /// solution may have missed changes; errors of other senders are only logged.
     /// Recreate the watcher only when the registered watcher itself has stopped;
     /// errors from a watcher that is still running, or from a watcher that is
     /// still starting, do not recreate it.
@@ -1387,10 +1396,21 @@ public sealed class DaemonServer : IAsyncDisposable
     {
         Log($"Watcher error ({kind}): {error?.Message}");
 
+        // A watcher that is still starting, or was already replaced, is not the
+        // registered one: its error only gets logged. Its owner covers the reload.
+        if (!IsRegisteredWatcher(kind, sender))
+            return;
+
         if (IsRegisteredWatcherStopped(kind, sender))
             RecreateWatcher(kind);
 
         ScheduleFullReload($"watcher error ({kind}): {error?.GetType().Name}");
+    }
+
+    private bool IsRegisteredWatcher(WatcherKind kind, FileSystemWatcher? sender)
+    {
+        lock (_watcherLock)
+            return ReferenceEquals(sender, kind == WatcherKind.Source ? _watcher : _metadataWatcher);
     }
 
     private bool IsRegisteredWatcherStopped(WatcherKind kind, FileSystemWatcher? sender)
@@ -1492,8 +1512,45 @@ public sealed class DaemonServer : IAsyncDisposable
                 _fullReloadPendingSince = null;
             }
 
-            StartBackgroundLoad();
+            StartBackgroundLoad(OnAutomaticReloadCompleted);
         }, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Result of a load that ScheduleFullReload started. A failure retries through
+    /// ScheduleFullReload after an exponential backoff with jitter; a success
+    /// resets the counter.
+    /// </summary>
+    private void OnAutomaticReloadCompleted(bool loaded)
+    {
+        int attempt;
+        lock (_fullReloadLock)
+        {
+            if (loaded)
+            {
+                _fullReloadRetryCount = 0;
+                return;
+            }
+
+            if (_fullReloadRetryCount >= MaxFullReloadRetries)
+            {
+                _fullReloadRetryCount = 0;
+                Log($"Automatic full reload failed; giving up after {MaxFullReloadRetries} retries. Run 'server reload' to try again.");
+                return;
+            }
+
+            attempt = ++_fullReloadRetryCount;
+        }
+
+        var backoff = FullReloadRetryBaseDelay * Math.Pow(2, attempt - 1);
+        var delay = backoff * (0.5 + Random.Shared.NextDouble()); // jitter: 50%..150%
+        Log($"Automatic full reload failed; retry {attempt}/{MaxFullReloadRetries} in {delay.TotalSeconds:0.0} s");
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(delay).ConfigureAwait(false);
+            ScheduleFullReload($"retry {attempt}/{MaxFullReloadRetries} after failed reload");
+        });
     }
 
     private bool IsAcceptingWork()

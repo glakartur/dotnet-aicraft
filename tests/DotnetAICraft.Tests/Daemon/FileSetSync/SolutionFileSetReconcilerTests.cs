@@ -164,8 +164,9 @@ public sealed class SolutionFileSetReconcilerTests
 
         Assert.Equal(ReconcileOutcome.Fallback, result.Outcome);
         Assert.Null(result.Solution);
-        // The legacy project may list any file, so both new files are undecided.
-        Assert.Equal(new[] { good, legacy }.Order(StringComparer.Ordinal), result.FallbackPaths.Order(StringComparer.Ordinal));
+        // Only the file in the legacy project is undecided: that project has no
+        // Compile Include outside its own directory, so it cannot claim Good.cs.
+        Assert.Equal([legacy], result.FallbackPaths);
     }
 
     [Fact]

@@ -90,6 +90,62 @@ public sealed class ProjectOwnershipResolverTests
         Assert.Contains("B.csproj", fallback.Reason);
     }
 
+    [Theory]
+    [InlineData("<Compile Update=\"Foo.cs\" Visible=\"false\" />")]
+    [InlineData("<Compile Remove=\"Legacy\\**\" />")]
+    [InlineData("<Compile Include=\"Local\\Extra.cs\" />")]
+    [InlineData("<Compile Include=\"Gen.cs\" />")]
+    public void Resolve_OtherProjectHasNonExternalCompileItems_StaysOwned(string compileItem)
+    {
+        using var t = new FileSetTestSolution();
+        t.AddProject("src/A/A.csproj");
+        t.AddProject("src/B/B.csproj", $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>{compileItem}</ItemGroup>
+            </Project>
+            """);
+
+        var decision = new ProjectOwnershipResolver(t.Solution).Resolve(t.PathOf("src/A/Foo.cs"));
+
+        Assert.IsType<OwnershipDecision.Owned>(decision);
+    }
+
+    [Theory]
+    [InlineData("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>")]
+    [InlineData("<BaseIntermediateOutputPath>..\\gen\\</BaseIntermediateOutputPath>")]
+    [InlineData("<OutputPath>..\\out\\</OutputPath>")]
+    [InlineData("<UseArtifactsOutput>true</UseArtifactsOutput>")]
+    public void Resolve_OtherProjectHasDefaultGlobOrOutputPathProperty_StaysOwned(string property)
+    {
+        using var t = new FileSetTestSolution();
+        t.AddProject("src/A/A.csproj");
+        t.AddProject("src/B/B.csproj", $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>{property}</PropertyGroup>
+            </Project>
+            """);
+
+        var decision = new ProjectOwnershipResolver(t.Solution).Resolve(t.PathOf("src/A/Foo.cs"));
+
+        Assert.IsType<OwnershipDecision.Owned>(decision);
+    }
+
+    [Fact]
+    public void Resolve_NoOwnerAndOtherProjectsOnlyChangeGlobsOrOutputPaths_ReturnsNotOwned()
+    {
+        using var t = new FileSetTestSolution();
+        t.AddProject("src/A/A.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup><OutputPath>..\out\</OutputPath></PropertyGroup>
+              <ItemGroup><Compile Remove="Old\**" /></ItemGroup>
+            </Project>
+            """);
+
+        var decision = new ProjectOwnershipResolver(t.Solution).Resolve(t.PathOf("scripts/Tool.cs"));
+
+        Assert.IsType<OwnershipDecision.NotOwned>(decision);
+    }
+
     [Fact]
     public void Resolve_LegacyProject_ReturnsFallback()
     {

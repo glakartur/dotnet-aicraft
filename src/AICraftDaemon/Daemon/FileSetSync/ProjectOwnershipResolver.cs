@@ -48,6 +48,7 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
     private static readonly string[] DirectoryBuildFileNames = ["Directory.Build.props", "Directory.Build.targets"];
 
     private readonly Dictionary<string, string?> _policyViolationByProjectFile = new(FileSetPaths.OsComparer);
+    private readonly Dictionary<string, string?> _externalCompileByProjectFile = new(FileSetPaths.OsComparer);
     private readonly Dictionary<string, string?> _violationByImportFile = new(FileSetPaths.OsComparer);
 
     public OwnershipDecision Resolve(string filePath)
@@ -75,7 +76,7 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
     {
         foreach (var projectFile in projectFiles)
         {
-            if (GetPolicyViolation(projectFile) is { } violation)
+            if (GetExternalCompileViolation(projectFile) is { } violation)
             {
                 return new OwnershipDecision.Fallback(
                     $"no owning project and {Path.GetFileName(projectFile)} may include it ({violation})");
@@ -100,7 +101,7 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
             if (string.Equals(other, projectFile, FileSetPaths.OsComparison))
                 continue;
 
-            if (GetPolicyViolation(other) is { } otherViolation)
+            if (GetExternalCompileViolation(other) is { } otherViolation)
             {
                 return new OwnershipDecision.Fallback(
                     $"{Path.GetFileName(other)} may also include it ({otherViolation})");
@@ -113,6 +114,63 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
             .ToList();
 
         return new OwnershipDecision.Owned(projectFile, projectIds);
+    }
+
+    /// <summary>
+    /// For a project that does not own the file by directory: returns why it may
+    /// still compile the file, or null. Only an explicit <c>&lt;Compile Include&gt;</c>
+    /// (also with <c>Link</c>) whose Include points outside the project directory
+    /// counts. <c>Compile Update/Remove</c>, default-glob properties and output-path
+    /// properties of such a project do not make it a candidate.
+    /// </summary>
+    private string? GetExternalCompileViolation(string projectFile)
+    {
+        if (_externalCompileByProjectFile.TryGetValue(projectFile, out var cached))
+            return cached;
+
+        var violation = FindExternalCompileInclude(projectFile);
+        _externalCompileByProjectFile[projectFile] = violation;
+        return violation;
+    }
+
+    private static string? FindExternalCompileInclude(string projectFile)
+    {
+        var document = TryLoadXml(projectFile, out _);
+        if (document?.Root is not { } root)
+            return null;
+
+        var projectDirectory = Path.GetDirectoryName(projectFile)!;
+        foreach (var item in root.Descendants().Where(e => e.Name.LocalName == "Compile"))
+        {
+            if (item.Attribute("Include")?.Value is not { Length: > 0 } include)
+                continue;
+
+            foreach (var part in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!PointsInsideDirectory(projectDirectory, part))
+                    return $"includes {part} outside its directory";
+            }
+        }
+
+        return null;
+    }
+
+    private static bool PointsInsideDirectory(string directory, string include)
+    {
+        // An MSBuild property or item reference cannot be resolved here: treat as outside.
+        if (include.Contains("$(") || include.Contains("@("))
+            return false;
+
+        try
+        {
+            var normalized = include.Replace('\\', Path.DirectorySeparatorChar);
+            var full = Path.GetFullPath(Path.Combine(directory, normalized));
+            return FileSetPaths.IsUnderDirectory(directory, full);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
