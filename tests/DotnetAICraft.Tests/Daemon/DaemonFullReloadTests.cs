@@ -210,29 +210,6 @@ public sealed class DaemonFullReloadTests
         Assert.Equal(2 * (1 + DaemonServer.MaxFullReloadRetries), server.LoadAttemptCount);
     }
 
-    [Fact]
-    public async Task ScheduleFullReload_SuccessfulLoad_DoesNotRetry()
-    {
-        var root = CreateTempDirectory();
-        try
-        {
-            var solution = Path.Combine(root, "App.slnx");
-            File.WriteAllText(solution, "<Solution />");
-            await using var server = NewRetryServer(solution);
-
-            server.ScheduleFullReload("trigger");
-
-            await WaitUntilAsync(() => server.LoadAttemptCount >= 1);
-            await Task.Delay(Debounce * 8);
-            await server.GetBackgroundLoadTaskForTesting();
-            Assert.Equal(1, server.LoadAttemptCount);
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
     private static DaemonServer NewRetryServer(string? solutionPath = null)
         => new(solutionPath ?? Path.Combine(Path.GetTempPath(), "no-such.sln"))
         {

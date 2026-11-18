@@ -159,6 +159,11 @@ public sealed class DaemonServer : IAsyncDisposable
         get { lock (_watcherLock) return _watcherRetryPending.Count; }
     }
 
+    internal int FullReloadRetryCountForTesting
+    {
+        get { lock (_fullReloadLock) { return _fullReloadRetryCount; } }
+    }
+
     internal Task GetBackgroundLoadTaskForTesting() => GetBackgroundLoadTask();
 
     internal Solution? CurrentSolutionForTesting => _solution;

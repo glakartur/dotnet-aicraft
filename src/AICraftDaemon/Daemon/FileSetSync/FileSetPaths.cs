@@ -9,17 +9,18 @@ internal static class FileSetPaths
     // the Web SDK and can hold huge trees; no real project compiles .cs from it.
     private static readonly string[] SkippedDirectoryNames = ["obj", "bin", "node_modules"];
 
+    /// <summary>True on Windows and macOS, false on Linux.</summary>
+    public static bool IsCaseInsensitiveFileSystem { get; } = !OperatingSystem.IsLinux();
+
     /// <summary>
     /// Comparison the host file system uses for paths: ordinal on Linux,
     /// case-insensitive on Windows and macOS.
     /// </summary>
     public static StringComparison OsComparison { get; } =
-        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-
-    public static bool IsCaseInsensitiveFileSystem { get; } = !OperatingSystem.IsLinux();
+        IsCaseInsensitiveFileSystem ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     public static StringComparer OsComparer { get; } =
-        OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+        IsCaseInsensitiveFileSystem ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     public static bool IsCSharpFile(string? path)
         => !string.IsNullOrEmpty(path) && path.EndsWith(".cs", OsComparison);
