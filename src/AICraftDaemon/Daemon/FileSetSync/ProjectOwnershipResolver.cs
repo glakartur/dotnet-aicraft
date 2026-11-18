@@ -33,10 +33,14 @@ internal sealed class ProjectOwnershipResolver(Solution solution)
         "EnableDefaultItems",
         "DefaultItemExcludes",
         "DefaultExcludesInProjectFolder",
+        // SDK input folded into DefaultExcludesInProjectFolder (DefaultItems.targets).
+        "DefaultItemExcludesInProjectFolder",
         // Output paths decide where generated .cs files go; outside obj/ and bin/
         // they could be picked up as source.
         "BaseIntermediateOutputPath",
         "BaseOutputPath",
+        "OutputPath",
+        "IntermediateOutputPath",
         "UseArtifactsOutput",
         "ArtifactsPath",
     };

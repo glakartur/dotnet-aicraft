@@ -146,6 +146,12 @@ public sealed class DaemonServer : IAsyncDisposable
     /// <summary>Test seam: runs in rename after the preview and before _solutionLock is taken.</summary>
     internal Func<Task>? BeforeRenameApplyForTesting { get; set; }
 
+    /// <summary>Number of watcher recreate retries that wait for their delay.</summary>
+    internal int PendingWatcherRetryCountForTesting
+    {
+        get { lock (_watcherLock) return _watcherRetryPending.Count; }
+    }
+
     internal Task GetBackgroundLoadTaskForTesting() => GetBackgroundLoadTask();
 
     internal Solution? CurrentSolutionForTesting => _solution;
@@ -673,6 +679,9 @@ public sealed class DaemonServer : IAsyncDisposable
     // DocumentId, and TryApplyChanges would see that as a remove plus an add.
     private static bool HaveSameDocumentSet(Solution left, Solution right)
     {
+        if (ReferenceEquals(left, right))
+            return true;
+
         static HashSet<(DocumentId Id, string? FilePath)> Keys(Solution solution)
             => solution.Projects
                 .SelectMany(project => project.Documents.Select(document => (document.Id, document.FilePath)))
@@ -1345,23 +1354,23 @@ public sealed class DaemonServer : IAsyncDisposable
             _fileSetQueue?.EnqueueDirectory(path);
     }
 
+    private static readonly HashSet<string> MetadataFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props",
+    };
+
+    private static readonly HashSet<string> MetadataExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".sln", ".slnx", ".csproj", ".vbproj", ".fsproj",
+    };
+
     internal static bool IsMetadataReloadCandidate(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
             return false;
 
-        var fileName = Path.GetFileName(path);
-        if (string.Equals(fileName, "Directory.Build.props", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(fileName, "Directory.Build.targets", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(fileName, "Directory.Packages.props", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var ext = Path.GetExtension(path);
-        return ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".fsproj", StringComparison.OrdinalIgnoreCase);
+        return MetadataFileNames.Contains(Path.GetFileName(path)) ||
+               MetadataExtensions.Contains(Path.GetExtension(path));
     }
 
     /// <summary>
@@ -1565,6 +1574,7 @@ public sealed class DaemonServer : IAsyncDisposable
                 continue;
             }
 
+            Log($"File update queued for retry: {path}");
             next.Add(path);
             _fileSetQueue?.Enqueue(path);
         }

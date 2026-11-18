@@ -465,6 +465,75 @@ public sealed class SolutionFileSetReconcilerTests
         Assert.Equal([locked], result.Retry);
     }
 
+    [Fact]
+    public async Task Reconcile_CaseInsensitiveFs_DocumentWithDifferentCaseIsUpdatedNotAdded()
+    {
+        using var t = new FileSetTestSolution();
+        var projectId = t.AddProject("src/A/A.csproj");
+        var documentPath = t.PathOf("src/A/foo.cs");
+        t.Solution = t.Solution.AddDocument(
+            DocumentId.CreateNewId(projectId), "foo.cs", SourceText.From("class Foo { }"), filePath: documentPath);
+        var diskPath = t.WriteFile("src/A/Foo.cs", "class Foo { int X; }");
+
+        var result = await new SolutionFileSetReconciler(t.Root, caseInsensitiveFileSystem: true).ReconcileAsync(
+            t.Solution, new FileSetBatch([diskPath], []), CancellationToken.None);
+
+        Assert.Equal(ReconcileOutcome.Applied, result.Outcome);
+        Assert.Empty(result.Added);
+        Assert.Equal([diskPath], result.Updated);
+        Assert.True(SolutionFileSetReconciler.ContainsDocument(t.Solution, diskPath, caseInsensitiveFileSystem: true));
+        Assert.False(SolutionFileSetReconciler.ContainsDocument(t.Solution, diskPath, caseInsensitiveFileSystem: false));
+    }
+
+    [Fact]
+    public async Task Reconcile_CaseSensitiveFs_DocumentWithDifferentCaseIsNotTheSameFile()
+    {
+        using var t = new FileSetTestSolution();
+        var projectId = t.AddProject("src/A/A.csproj");
+        t.Solution = t.Solution.AddDocument(
+            DocumentId.CreateNewId(projectId), "foo.cs", SourceText.From("class Foo { }"), filePath: t.PathOf("src/A/foo.cs"));
+        var diskPath = t.WriteFile("src/A/Foo.cs", "class Foo2 { }");
+
+        var result = await new SolutionFileSetReconciler(t.Root, caseInsensitiveFileSystem: false).ReconcileAsync(
+            t.Solution, new FileSetBatch([diskPath], []), CancellationToken.None);
+
+        Assert.Single(result.Added);
+        Assert.Empty(result.Updated);
+    }
+
+    [Fact]
+    public async Task Reconcile_CaseInsensitiveFs_CaseOnlyRenameStillRemovesOldAndAddsNew()
+    {
+        using var t = new FileSetTestSolution();
+        var projectId = t.AddProject("src/A/A.csproj");
+        var oldPath = t.AddDocument("src/A/foo.cs", "class Foo { }", projectId);
+        var newPath = t.PathOf("src/A/Foo.cs");
+        File.Move(oldPath, newPath);
+
+        var result = await new SolutionFileSetReconciler(t.Root, caseInsensitiveFileSystem: true).ReconcileAsync(
+            t.Solution, new FileSetBatch([oldPath, newPath], []), CancellationToken.None);
+
+        Assert.Equal([oldPath], result.Removed);
+        Assert.Equal(newPath, Assert.Single(result.Added).Path);
+    }
+
+    // Two files that differ only in case can exist only on a case-sensitive disk.
+    [LinuxOnlyFact]
+    public async Task Reconcile_CaseInsensitiveFs_DocumentStillOnDiskUnderOwnName_IsNotReused()
+    {
+        using var t = new FileSetTestSolution();
+        var projectId = t.AddProject("src/A/A.csproj");
+        var documentPath = t.AddDocument("src/A/foo.cs", "class Foo { }", projectId);
+        var newPath = t.WriteFile("src/A/Foo.cs", "class Foo2 { }");
+
+        var result = await new SolutionFileSetReconciler(t.Root, caseInsensitiveFileSystem: true).ReconcileAsync(
+            t.Solution, new FileSetBatch([newPath], []), CancellationToken.None);
+
+        Assert.Equal(newPath, Assert.Single(result.Added).Path);
+        Assert.Empty(result.Updated);
+        Assert.Single(t.DocumentsAt(result.Solution!, documentPath));
+    }
+
     private static async Task<ReconcileResult> Reconcile(
         FileSetTestSolution t,
         string[]? files = null,

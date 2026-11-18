@@ -46,13 +46,17 @@ internal sealed class LiveSampleSolution : IAsyncDisposable
         ?? throw new InvalidOperationException("Solution is not loaded.");
 
     /// <param name="prepare">Changes the copied files before the daemon starts.</param>
-    public static async Task<LiveSampleSolution> StartAsync(Action<string>? prepare = null)
+    /// <param name="serverFactory">Creates the server for the solution path (to set timing options).</param>
+    public static async Task<LiveSampleSolution> StartAsync(
+        Action<string>? prepare = null,
+        Func<string, DaemonServer>? serverFactory = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "aicraft-live-" + Guid.NewGuid().ToString("N"));
         CopyDirectory(FixtureRoot, root);
         prepare?.Invoke(root);
 
-        var server = new DaemonServer(Path.Combine(root, "SampleSolution.sln"));
+        var solutionPath = Path.Combine(root, "SampleSolution.sln");
+        var server = serverFactory?.Invoke(solutionPath) ?? new DaemonServer(solutionPath);
         var live = new LiveSampleSolution(root, server);
         server.StartWorkspaceServices();
         await live.WaitLoadedAsync(expectedAttempts: 1);

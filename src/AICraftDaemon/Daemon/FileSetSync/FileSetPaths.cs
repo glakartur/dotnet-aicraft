@@ -16,6 +16,8 @@ internal static class FileSetPaths
     public static StringComparison OsComparison { get; } =
         OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
+    public static bool IsCaseInsensitiveFileSystem { get; } = !OperatingSystem.IsLinux();
+
     public static StringComparer OsComparer { get; } =
         OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
 

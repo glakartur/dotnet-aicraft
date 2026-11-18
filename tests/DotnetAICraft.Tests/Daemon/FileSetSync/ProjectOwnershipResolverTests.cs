@@ -108,6 +108,9 @@ public sealed class ProjectOwnershipResolverTests
     [InlineData("<PropertyGroup><EnableDefaultItems>false</EnableDefaultItems></PropertyGroup>")]
     [InlineData("<PropertyGroup><DefaultItemExcludes>$(DefaultItemExcludes);Legacy/**</DefaultItemExcludes></PropertyGroup>")]
     [InlineData("<PropertyGroup><DefaultExcludesInProjectFolder>Legacy/**</DefaultExcludesInProjectFolder></PropertyGroup>")]
+    [InlineData("<PropertyGroup><DefaultItemExcludesInProjectFolder>$(DefaultItemExcludesInProjectFolder);Templates/**</DefaultItemExcludesInProjectFolder></PropertyGroup>")]
+    [InlineData("<PropertyGroup><OutputPath>build/bin/</OutputPath></PropertyGroup>")]
+    [InlineData("<PropertyGroup><IntermediateOutputPath>build/obj/</IntermediateOutputPath></PropertyGroup>")]
     [InlineData("<PropertyGroup><BaseIntermediateOutputPath>build/obj/</BaseIntermediateOutputPath></PropertyGroup>")]
     [InlineData("<PropertyGroup><UseArtifactsOutput>true</UseArtifactsOutput></PropertyGroup>")]
     public void Resolve_ProjectWithCompilePolicyOverride_ReturnsFallback(string body)

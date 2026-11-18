@@ -8,10 +8,7 @@ namespace DotnetAICraft.Daemon.FileSetSync;
 /// <see cref="Directories"/> are directory markers (or any non-.cs path, because
 /// a watcher event does not say if the path is a directory).
 /// </summary>
-internal sealed record FileSetBatch(IReadOnlyCollection<string> Files, IReadOnlyCollection<string> Directories)
-{
-    public bool IsEmpty => Files.Count == 0 && Directories.Count == 0;
-}
+internal sealed record FileSetBatch(IReadOnlyCollection<string> Files, IReadOnlyCollection<string> Directories);
 
 internal enum ReconcileOutcome
 {
@@ -52,8 +49,11 @@ internal sealed record ReconcileResult(
 /// </summary>
 internal sealed class SolutionFileSetReconciler(
     string rootDirectory,
-    int massChangeThreshold = SolutionFileSetReconciler.DefaultMassChangeThreshold)
+    int massChangeThreshold = SolutionFileSetReconciler.DefaultMassChangeThreshold,
+    bool? caseInsensitiveFileSystem = null)
 {
+    private readonly bool _caseInsensitive = caseInsensitiveFileSystem ?? FileSetPaths.IsCaseInsensitiveFileSystem;
+
     /// <summary>
     /// More added plus removed files than this in one batch (e.g. <c>git checkout</c>)
     /// gives a full reload. Content changes do not count.
@@ -80,7 +80,7 @@ internal sealed class SolutionFileSetReconciler(
 
         foreach (var path in paths)
         {
-            var ids = FindDocuments(solution, path);
+            var ids = FindDocuments(solution, path, disk, paths, _caseInsensitive);
             var onDisk = disk.Exists(path);
 
             if (onDisk && ids.Count > 0)
@@ -189,8 +189,16 @@ internal sealed class SolutionFileSetReconciler(
             FallbackPaths: []);
     }
 
-    /// <summary>True when the solution has a document with exactly this path.</summary>
-    public static bool ContainsDocument(Solution solution, string path) => FindDocuments(solution, path).Count > 0;
+    /// <summary>
+    /// True when a compiled document exists for the path. On a case-insensitive
+    /// file system a document that differs only in letter case counts too, so
+    /// such a file is never marked as excluded.
+    /// </summary>
+    public static bool ContainsDocument(Solution solution, string path, bool? caseInsensitiveFileSystem = null)
+    {
+        var caseInsensitive = caseInsensitiveFileSystem ?? FileSetPaths.IsCaseInsensitiveFileSystem;
+        return FindDocuments(solution, path, disk: null, batchPaths: null, caseInsensitive).Count > 0;
+    }
 
     /// <summary>
     /// File paths of the batch plus the expansion of each directory marker:
@@ -234,7 +242,7 @@ internal sealed class SolutionFileSetReconciler(
     private static HashSet<string> CollapseToTopmost(IEnumerable<string> directories)
     {
         var all = directories
-            .Select(d => Path.TrimEndingDirectorySeparator(d))
+            .Select(Path.TrimEndingDirectorySeparator)
             .ToHashSet(FileSetPaths.OsComparer);
         return all.Where(d => !HasAncestorIn(all, d)).ToHashSet(FileSetPaths.OsComparer);
     }
@@ -290,12 +298,33 @@ internal sealed class SolutionFileSetReconciler(
     /// <summary>
     /// Documents with exactly this path. <see cref="Solution.GetDocumentIdsWithFilePath"/>
     /// ignores the letter case on every OS, so its result is filtered again.
+    /// On a case-insensitive OS, when no exact document exists, a document that
+    /// differs only in letter case is the same file (for example
+    /// <c>&lt;Compile Include="foo.cs"/&gt;</c> with <c>Foo.cs</c> on disk), unless
+    /// it is a case-only rename: its own path is then in the batch, or is still
+    /// on disk under that exact name.
     /// </summary>
-    private static IReadOnlyList<DocumentId> FindDocuments(Solution solution, string path)
-        => solution.GetDocumentIdsWithFilePath(path)
-            .Where(id => solution.GetDocument(id)?.FilePath is { } documentPath &&
-                         FileSetPaths.IsSameFile(documentPath, path))
+    private static IReadOnlyList<DocumentId> FindDocuments(
+        Solution solution,
+        string path,
+        DiskFileNames? disk,
+        ISet<string>? batchPaths,
+        bool caseInsensitive)
+    {
+        var candidates = solution.GetDocumentIdsWithFilePath(path)
+            .Select(id => (Id: id, DocumentPath: solution.GetDocument(id)?.FilePath))
+            .Where(c => c.DocumentPath is not null)
             .ToList();
+
+        var exact = candidates.Where(c => FileSetPaths.IsSameFile(c.DocumentPath!, path)).Select(c => c.Id).ToList();
+        if (exact.Count > 0 || !caseInsensitive)
+            return exact;
+
+        return candidates
+            .Where(c => batchPaths?.Contains(c.DocumentPath!) != true && disk?.Exists(c.DocumentPath!) != true)
+            .Select(c => c.Id)
+            .ToList();
+    }
 
     private static IReadOnlyList<string> GetFolders(string projectFilePath, string filePath)
     {
