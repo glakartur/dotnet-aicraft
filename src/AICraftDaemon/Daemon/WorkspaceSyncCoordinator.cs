@@ -126,7 +126,7 @@ internal sealed class WorkspaceSyncCoordinator
             return kind == WatcherKind.Source ? _watcher : _metadataWatcher;
     }
 
-    internal void StartFileSetQueue()
+    private void StartFileSetQueue()
     {
         _fileSetQueue?.Dispose();
         _fileSetQueue = new FileSetChangeQueue(
@@ -135,9 +135,9 @@ internal sealed class WorkspaceSyncCoordinator
             FileSetChangeQueue.DefaultMaxDelay);
     }
 
-    internal void StartFileWatcher() => StartWatcher(WatcherKind.Source);
+    private void StartFileWatcher() => StartWatcher(WatcherKind.Source);
 
-    internal void StartMetadataWatcher() => StartWatcher(WatcherKind.Tree);
+    private void StartMetadataWatcher() => StartWatcher(WatcherKind.Tree);
 
     /// <summary>
     /// Creates, starts and registers a watcher. Throws when the watcher cannot
