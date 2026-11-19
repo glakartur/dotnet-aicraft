@@ -62,7 +62,7 @@ public sealed class DaemonFullReloadTests
             server.LoadGateForTesting = gate.Task; // keep the load running
             try
             {
-                server.HandleWatcherError(DaemonServer.WatcherKind.Source, new InternalBufferOverflowException());
+                server.HandleWatcherError(WatcherKind.Source, new InternalBufferOverflowException());
 
                 await WaitUntilAsync(() => server.LoadAttemptCount == 1);
                 Assert.Equal("loading", await GetLoadStateAsync(server));
@@ -86,12 +86,12 @@ public sealed class DaemonFullReloadTests
         {
             await using var server = NewServer(Path.Combine(root, "App.sln"));
             server.StartWorkspaceServices();
-            var original = server.GetWatcher(DaemonServer.WatcherKind.Source)!;
+            var original = server.GetWatcher(WatcherKind.Source)!;
             original.EnableRaisingEvents = false;
 
-            server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("watcher died"));
+            server.HandleWatcherError(WatcherKind.Source, new IOException("watcher died"));
 
-            var recreated = server.GetWatcher(DaemonServer.WatcherKind.Source);
+            var recreated = server.GetWatcher(WatcherKind.Source);
             Assert.NotNull(recreated);
             Assert.NotSame(original, recreated);
             Assert.True(recreated.EnableRaisingEvents);
@@ -109,10 +109,10 @@ public sealed class DaemonFullReloadTests
         await using var server = NewServer(Path.Combine(missingRoot, "App.sln"));
 
         var error = Record.Exception(() =>
-            server.HandleWatcherError(DaemonServer.WatcherKind.Tree, new IOException("directory removed")));
+            server.HandleWatcherError(WatcherKind.Tree, new IOException("directory removed")));
 
         Assert.Null(error);
-        Assert.Null(server.GetWatcher(DaemonServer.WatcherKind.Tree));
+        Assert.Null(server.GetWatcher(WatcherKind.Tree));
         await WaitUntilAsync(() => server.LoadAttemptCount == 1);
     }
 
@@ -125,9 +125,9 @@ public sealed class DaemonFullReloadTests
             var server = NewServer(Path.Combine(root, "App.sln"));
             await server.DisposeAsync();
 
-            server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("late error"));
+            server.HandleWatcherError(WatcherKind.Source, new IOException("late error"));
 
-            Assert.Null(server.GetWatcher(DaemonServer.WatcherKind.Source));
+            Assert.Null(server.GetWatcher(WatcherKind.Source));
             await Task.Delay(Debounce * 3);
             Assert.Equal(0, server.LoadAttemptCount);
         }
@@ -145,12 +145,12 @@ public sealed class DaemonFullReloadTests
         {
             await using var server = NewServer(Path.Combine(root, "App.sln"));
             server.StartWorkspaceServices();
-            var registered = server.GetWatcher(DaemonServer.WatcherKind.Source);
+            var registered = server.GetWatcher(WatcherKind.Source);
             using var starting = new FileSystemWatcher(root);
 
-            server.HandleWatcherError(DaemonServer.WatcherKind.Source, starting, new IOException("error while starting"));
+            server.HandleWatcherError(WatcherKind.Source, starting, new IOException("error while starting"));
 
-            Assert.Same(registered, server.GetWatcher(DaemonServer.WatcherKind.Source));
+            Assert.Same(registered, server.GetWatcher(WatcherKind.Source));
         }
         finally
         {
@@ -171,7 +171,7 @@ public sealed class DaemonFullReloadTests
             var before = server.LoadAttemptCount;
             using var starting = new FileSystemWatcher(root);
 
-            server.HandleWatcherError(DaemonServer.WatcherKind.Source, starting, new IOException("error while starting"));
+            server.HandleWatcherError(WatcherKind.Source, starting, new IOException("error while starting"));
 
             await Task.Delay(Debounce * 3);
             Assert.Equal(before, server.LoadAttemptCount);

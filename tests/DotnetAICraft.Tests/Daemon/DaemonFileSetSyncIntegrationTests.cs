@@ -267,11 +267,11 @@ public sealed class DaemonFileSetSyncIntegrationTests(ITestOutputHelper output)
     public async Task WatcherErrorOnStoppedWatcher_RecreatesWatcherAndNextChangeIsDetected()
     {
         await using var live = await LiveSampleSolution.StartAsync();
-        live.Server.GetWatcher(DaemonServer.WatcherKind.Source)!.EnableRaisingEvents = false;
-        live.Server.GetWatcher(DaemonServer.WatcherKind.Tree)!.EnableRaisingEvents = false;
+        live.Server.GetWatcher(WatcherKind.Source)!.EnableRaisingEvents = false;
+        live.Server.GetWatcher(WatcherKind.Tree)!.EnableRaisingEvents = false;
 
-        live.Server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("watcher died"));
-        live.Server.HandleWatcherError(DaemonServer.WatcherKind.Tree, new IOException("watcher died"));
+        live.Server.HandleWatcherError(WatcherKind.Source, new IOException("watcher died"));
+        live.Server.HandleWatcherError(WatcherKind.Tree, new IOException("watcher died"));
         await live.WaitLoadedAsync(expectedAttempts: 2);
 
         live.WriteFile("src/Sample.Domain/AfterRecovery.cs", "namespace Sample.Domain; public sealed class AfterRecovery { }");

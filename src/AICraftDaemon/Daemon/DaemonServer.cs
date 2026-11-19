@@ -23,7 +23,6 @@ public sealed class DaemonServer : IAsyncDisposable
     private readonly string _solutionPath;
     private readonly DaemonStartupLock? _startupLock;
     private readonly CancellationTokenSource _cts = new();
-    private readonly object _fullReloadLock = new();
     private MSBuildWorkspace? _workspace;
     private Solution? _solution;
     private DateTime _loadedAt;
@@ -34,18 +33,10 @@ public sealed class DaemonServer : IAsyncDisposable
     // writes happen under _solutionLock; volatile guarantees readers see the
     // latest transition without taking the lock.
     private volatile DaemonLoadState _loadState = DaemonLoadState.Unloaded;
-    // Guarded by _watcherLock: a watcher error can replace a watcher at any time.
-    private readonly object _watcherLock = new();
-    private FileSystemWatcher? _watcher;
-    private FileSystemWatcher? _metadataWatcher;
-    private FileSetChangeQueue? _fileSetQueue;
+    // Watchers, file-set queue and debounced full reload. This class keeps the
+    // solution, the workspace and _solutionLock; the coordinator never touches them.
+    private readonly WorkspaceSyncCoordinator _sync;
     private readonly SolutionFileSetReconciler _reconciler;
-    // Paths queued again after a read error; touched only by the queue's flush callback.
-    private HashSet<string> _retriedPaths = new(StringComparer.Ordinal);
-    private CancellationTokenSource? _fullReloadDebounceCts;
-    private DateTime? _fullReloadPendingSince; // guarded by _fullReloadLock
-    private bool _watchersStopped; // guarded by _watcherLock
-    private readonly HashSet<WatcherKind> _watcherRetryPending = []; // guarded by _watcherLock
     private bool _backgroundLoadsStopped; // guarded by _backgroundLoadLock
     // Files whose owner the reconciler could not decide, waiting for the next full
     // load, and files that the last full load left out although they were on
@@ -54,7 +45,6 @@ public sealed class DaemonServer : IAsyncDisposable
     private HashSet<string> _excludedByLastLoad = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _solutionLock = new(1, 1);
     private int _loadAttempts;
-    private int _fullReloadRetryCount; // guarded by _fullReloadLock
     // Tracks the in-flight (or last) accept-then-load task so reload can run the
     // load in the background instead of blocking the request, and so shutdown can
     // observe it. Guarded by _backgroundLoadLock.
@@ -124,25 +114,31 @@ public sealed class DaemonServer : IAsyncDisposable
         _solutionPath = Path.GetFullPath(solutionPath);
         _loadedAt = _startedAt;
         _reconciler = new SolutionFileSetReconciler(WatchRoot);
+        _sync = new WorkspaceSyncCoordinator(
+            WatchRoot,
+            ApplyFileSetBatchAsync,
+            onCompleted => StartBackgroundLoad(onCompleted),
+            IsAcceptingWork,
+            Log);
     }
 
     /// <summary>Delay before a scheduled full reload starts; coalesces bursts of triggers.</summary>
-    internal TimeSpan FullReloadDebounce { get; init; } = TimeSpan.FromMilliseconds(500);
+    internal TimeSpan FullReloadDebounce { get => _sync.FullReloadDebounce; init => _sync.FullReloadDebounce = value; }
 
     /// <summary>Upper bound for postponing a scheduled full reload by new triggers.</summary>
-    internal TimeSpan FullReloadMaxDelay { get; init; } = TimeSpan.FromSeconds(5);
+    internal TimeSpan FullReloadMaxDelay { get => _sync.FullReloadMaxDelay; init => _sync.FullReloadMaxDelay = value; }
 
     /// <summary>Delay before a failed watcher recreate is tried again.</summary>
-    internal TimeSpan WatcherRecreateRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
+    internal TimeSpan WatcherRecreateRetryDelay { get => _sync.WatcherRecreateRetryDelay; init => _sync.WatcherRecreateRetryDelay = value; }
 
     /// <summary>Base delay of the exponential backoff between automatic full reload retries.</summary>
-    internal TimeSpan FullReloadRetryBaseDelay { get; init; } = TimeSpan.FromSeconds(2);
+    internal TimeSpan FullReloadRetryBaseDelay { get => _sync.FullReloadRetryBaseDelay; init => _sync.FullReloadRetryBaseDelay = value; }
 
     /// <summary>Retries after a failed automatic full reload, before the daemon gives up.</summary>
-    internal const int MaxFullReloadRetries = 3;
+    internal const int MaxFullReloadRetries = WorkspaceSyncCoordinator.MaxFullReloadRetries;
 
     /// <summary>Trailing debounce of the file-set queue.</summary>
-    internal TimeSpan FileSetDebounce { get; init; } = FileSetChangeQueue.DefaultDebounce;
+    internal TimeSpan FileSetDebounce { get => _sync.FileSetDebounce; init => _sync.FileSetDebounce = value; }
 
     /// <summary>Number of solution load attempts (cold start and every reload).</summary>
     internal int LoadAttemptCount => Volatile.Read(ref _loadAttempts);
@@ -156,13 +152,23 @@ public sealed class DaemonServer : IAsyncDisposable
     /// <summary>Number of watcher recreate retries that wait for their delay.</summary>
     internal int PendingWatcherRetryCountForTesting
     {
-        get { lock (_watcherLock) return _watcherRetryPending.Count; }
+        get => _sync.PendingWatcherRetryCount;
     }
 
     internal int FullReloadRetryCountForTesting
     {
-        get { lock (_fullReloadLock) { return _fullReloadRetryCount; } }
+        get => _sync.FullReloadRetryCount;
     }
+
+    internal FileSystemWatcher? GetWatcher(WatcherKind kind) => _sync.GetWatcher(kind);
+
+    internal void HandleWatcherError(WatcherKind kind, Exception? error) => _sync.HandleWatcherError(kind, error);
+
+    internal void HandleWatcherError(WatcherKind kind, FileSystemWatcher? sender, Exception? error) => _sync.HandleWatcherError(kind, sender, error);
+
+    internal void ScheduleFullReload(string reason) => _sync.ScheduleFullReload(reason);
+
+    internal static bool IsMetadataReloadCandidate(string? path) => WorkspaceSyncCoordinator.IsMetadataReloadCandidate(path);
 
     internal Task GetBackgroundLoadTaskForTesting() => GetBackgroundLoadTask();
 
@@ -235,9 +241,7 @@ public sealed class DaemonServer : IAsyncDisposable
     /// </summary>
     internal void StartWorkspaceServices()
     {
-        StartFileSetQueue();
-        StartFileWatcher();
-        StartMetadataWatcher();
+        _sync.Start();
 
         // Accept-then-load: serve connections (and answer `status`) while the
         // solution loads on a background task, instead of blocking the accept
@@ -1214,349 +1218,7 @@ public sealed class DaemonServer : IAsyncDisposable
     // Anything the reconciler cannot decide safely, metadata changes and watcher
     // errors become a full reload through StartBackgroundLoad.
 
-    private const int WatcherBufferSize = 64 * 1024; // honored on Windows only; Linux uses fs.inotify.max_queued_events
-
-    internal enum WatcherKind
-    {
-        /// <summary>The <c>*.cs</c> watcher.</summary>
-        Source,
-
-        /// <summary>The unfiltered watcher: metadata files and directory events.</summary>
-        Tree,
-    }
-
     private string WatchRoot => Path.GetDirectoryName(_solutionPath)!;
-
-    internal FileSystemWatcher? GetWatcher(WatcherKind kind)
-    {
-        lock (_watcherLock)
-            return kind == WatcherKind.Source ? _watcher : _metadataWatcher;
-    }
-
-    private void StartFileSetQueue()
-    {
-        _fileSetQueue?.Dispose();
-        _fileSetQueue = new FileSetChangeQueue(
-            ApplyFileSetBatchAsync,
-            FileSetDebounce,
-            FileSetChangeQueue.DefaultMaxDelay);
-    }
-
-    private void StartFileWatcher() => StartWatcher(WatcherKind.Source);
-
-    private void StartMetadataWatcher() => StartWatcher(WatcherKind.Tree);
-
-    /// <summary>
-    /// Creates, starts and registers a watcher. Throws when the watcher cannot
-    /// start; a watcher that stops while starting is disposed, never registered.
-    /// </summary>
-    private void StartWatcher(WatcherKind kind)
-    {
-        var watcher = kind == WatcherKind.Source ? CreateSourceWatcher() : CreateTreeWatcher();
-        // The sender is passed on: an error raised while this watcher starts
-        // (inside EnableRaisingEvents, e.g. an unreadable subdirectory on Linux)
-        // must not recreate it again, or the recreate recurses without end.
-        watcher.Error += (sender, e) => HandleWatcherError(kind, sender as FileSystemWatcher, e.GetException());
-        try
-        {
-            watcher.EnableRaisingEvents = true;
-            if (!watcher.EnableRaisingEvents)
-                throw new IOException($"The {kind} watcher stopped while starting.");
-        }
-        catch
-        {
-            watcher.Dispose();
-            throw;
-        }
-
-        FileSystemWatcher? previous;
-        lock (_watcherLock)
-        {
-            if (_watchersStopped)
-            {
-                previous = watcher; // the daemon is shutting down: never register it
-            }
-            else if (kind == WatcherKind.Source)
-            {
-                previous = _watcher;
-                _watcher = watcher;
-            }
-            else
-            {
-                previous = _metadataWatcher;
-                _metadataWatcher = watcher;
-            }
-        }
-
-        previous?.Dispose();
-    }
-
-    private FileSystemWatcher CreateSourceWatcher()
-    {
-        var watcher = new FileSystemWatcher(WatchRoot, "*.cs")
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
-            InternalBufferSize = WatcherBufferSize,
-        };
-
-        watcher.Changed += (_, e) => EnqueueSourceFile(e.FullPath);
-        watcher.Created += (_, e) => EnqueueSourceFile(e.FullPath);
-        watcher.Deleted += (_, e) => EnqueueSourceFile(e.FullPath);
-        watcher.Renamed += (_, e) =>
-        {
-            EnqueueSourceFile(e.OldFullPath);
-            EnqueueSourceFile(e.FullPath);
-        };
-        return watcher;
-    }
-
-    private FileSystemWatcher CreateTreeWatcher()
-    {
-        var watcher = new FileSystemWatcher(WatchRoot)
-        {
-            IncludeSubdirectories = true,
-            // DirectoryName is required to get rename/delete events for directories.
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
-            InternalBufferSize = WatcherBufferSize,
-        };
-
-        watcher.Changed += (_, e) => OnTreeChange(e.FullPath, structural: false);
-        watcher.Created += (_, e) => OnTreeChange(e.FullPath, structural: true);
-        watcher.Deleted += (_, e) => OnTreeChange(e.FullPath, structural: true);
-        watcher.Renamed += (_, e) =>
-        {
-            OnTreeChange(e.OldFullPath, structural: true);
-            OnTreeChange(e.FullPath, structural: true);
-        };
-        return watcher;
-    }
-
-    private void EnqueueSourceFile(string path)
-    {
-        if (FileSetPaths.IsCSharpFile(path) && !FileSetPaths.IsIgnored(WatchRoot, path))
-            _fileSetQueue?.Enqueue(path);
-    }
-
-    /// <param name="structural">True for Created/Deleted/Renamed, false for Changed.</param>
-    private void OnTreeChange(string path, bool structural)
-    {
-        var root = WatchRoot;
-        // Drop build output, .git and other hidden directories before any work,
-        // so builds and git operations do not cause batches or reloads.
-        if (FileSetPaths.IsIgnored(root, path))
-            return;
-
-        if (IsMetadataReloadCandidate(path))
-        {
-            ScheduleFullReload($"metadata changed: {Path.GetRelativePath(root, path)}");
-            return;
-        }
-
-        // Also covers renames such as Foo.tmp -> Foo.cs that the *.cs watcher can miss.
-        if (FileSetPaths.IsCSharpFile(path))
-        {
-            _fileSetQueue?.Enqueue(path);
-            return;
-        }
-
-        // An event does not say if the path is a directory, so every other
-        // structural change becomes a directory marker. Expanding a marker for a
-        // plain file (notes.json, an editor temp file) gives an empty result.
-        if (structural && !FileSetPaths.IsIgnoredDirectory(root, path))
-            _fileSetQueue?.EnqueueDirectory(path);
-    }
-
-    private static readonly HashSet<string> MetadataFileNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props",
-    };
-
-    private static readonly HashSet<string> MetadataExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".sln", ".slnx", ".csproj", ".vbproj", ".fsproj",
-    };
-
-    internal static bool IsMetadataReloadCandidate(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-
-        return MetadataFileNames.Contains(Path.GetFileName(path)) ||
-               MetadataExtensions.Contains(Path.GetExtension(path));
-    }
-
-    /// <summary>
-    /// A watcher error can mean lost events (buffer overflow) or a dead watcher.
-    /// Reload when the sender is the registered watcher, because the in-memory
-    /// solution may have missed changes; errors of other senders are only logged.
-    /// Recreate the watcher only when the registered watcher itself has stopped;
-    /// errors from a watcher that is still running, or from a watcher that is
-    /// still starting, do not recreate it.
-    /// </summary>
-    internal void HandleWatcherError(WatcherKind kind, Exception? error)
-        => HandleWatcherError(kind, GetWatcher(kind), error);
-
-    internal void HandleWatcherError(WatcherKind kind, FileSystemWatcher? sender, Exception? error)
-    {
-        Log($"Watcher error ({kind}): {error?.Message}");
-
-        // A watcher that is still starting, or was already replaced, is not the
-        // registered one: its error only gets logged. Its owner covers the reload.
-        if (!IsRegisteredWatcher(kind, sender))
-            return;
-
-        if (IsRegisteredWatcherStopped(kind, sender))
-            RecreateWatcher(kind);
-
-        ScheduleFullReload($"watcher error ({kind}): {error?.GetType().Name}");
-    }
-
-    private bool IsRegisteredWatcher(WatcherKind kind, FileSystemWatcher? sender)
-    {
-        lock (_watcherLock)
-            return ReferenceEquals(sender, kind == WatcherKind.Source ? _watcher : _metadataWatcher);
-    }
-
-    private bool IsRegisteredWatcherStopped(WatcherKind kind, FileSystemWatcher? sender)
-    {
-        lock (_watcherLock)
-        {
-            var registered = kind == WatcherKind.Source ? _watcher : _metadataWatcher;
-            if (!ReferenceEquals(sender, registered))
-                return false; // a watcher that is starting, or one already replaced
-
-            return registered is null || !registered.EnableRaisingEvents;
-        }
-    }
-
-    private void RecreateWatcher(WatcherKind kind)
-    {
-        if (!IsAcceptingWork())
-            return;
-
-        try
-        {
-            StartWatcher(kind);
-            Log($"Watcher recreated ({kind})");
-        }
-        catch (Exception ex)
-        {
-            Log($"Watcher recreate failed ({kind}): {ex.Message}; retry in {WatcherRecreateRetryDelay.TotalSeconds:0} s");
-            ScheduleWatcherRecreateRetry(kind);
-        }
-    }
-
-    /// <summary>One pending retry per watcher kind; a retry that succeeds also reloads.</summary>
-    private void ScheduleWatcherRecreateRetry(WatcherKind kind)
-    {
-        lock (_watcherLock)
-        {
-            if (_watchersStopped || !_watcherRetryPending.Add(kind))
-                return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(WatcherRecreateRetryDelay);
-            lock (_watcherLock)
-                _watcherRetryPending.Remove(kind);
-
-            if (!IsRegisteredWatcherStopped(kind, GetWatcher(kind)))
-                return;
-
-            RecreateWatcher(kind);
-            if (GetWatcher(kind) is { EnableRaisingEvents: true })
-                ScheduleFullReload($"watcher recreated ({kind})");
-        });
-    }
-
-    /// <summary>
-    /// Debounced full reload. Always goes through StartBackgroundLoad, which
-    /// chains after an in-flight load, so a request that arrives during a reload
-    /// is never lost.
-    /// </summary>
-    internal void ScheduleFullReload(string reason)
-    {
-        CancellationToken token;
-        lock (_fullReloadLock)
-        {
-            if (!IsAcceptingWork())
-                return;
-
-            Log($"Full reload scheduled: {reason}");
-
-            // Trailing debounce with a cap: a steady stream of triggers must not
-            // postpone the reload forever. Past the cap, the pending reload stands.
-            var now = DateTime.UtcNow;
-            if (_fullReloadPendingSince is { } since && now - since >= FullReloadMaxDelay)
-                return;
-
-            _fullReloadPendingSince ??= now;
-            _fullReloadDebounceCts?.Cancel();
-            _fullReloadDebounceCts?.Dispose();
-            _fullReloadDebounceCts = new CancellationTokenSource();
-            token = _fullReloadDebounceCts.Token;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(FullReloadDebounce, token);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-
-            lock (_fullReloadLock)
-            {
-                if (token.IsCancellationRequested)
-                    return;
-                _fullReloadPendingSince = null;
-            }
-
-            StartBackgroundLoad(OnAutomaticReloadCompleted);
-        }, CancellationToken.None);
-    }
-
-    /// <summary>
-    /// Result of a load that ScheduleFullReload started. A failure retries through
-    /// ScheduleFullReload after an exponential backoff with jitter; a success
-    /// resets the counter.
-    /// </summary>
-    private void OnAutomaticReloadCompleted(bool loaded)
-    {
-        int attempt;
-        lock (_fullReloadLock)
-        {
-            if (loaded)
-            {
-                _fullReloadRetryCount = 0;
-                return;
-            }
-
-            if (_fullReloadRetryCount >= MaxFullReloadRetries)
-            {
-                _fullReloadRetryCount = 0;
-                Log($"Automatic full reload failed; giving up after {MaxFullReloadRetries} retries. Run 'server reload' to try again.");
-                return;
-            }
-
-            attempt = ++_fullReloadRetryCount;
-        }
-
-        var backoff = FullReloadRetryBaseDelay * Math.Pow(2, attempt - 1);
-        var delay = backoff * (0.5 + Random.Shared.NextDouble()); // jitter: 50%..150%
-        Log($"Automatic full reload failed; retry {attempt}/{MaxFullReloadRetries} in {delay.TotalSeconds:0.0} s");
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(delay).ConfigureAwait(false);
-            ScheduleFullReload($"retry {attempt}/{MaxFullReloadRetries} after failed reload");
-        });
-    }
 
     private bool IsAcceptingWork()
     {
@@ -1619,29 +1281,9 @@ public sealed class DaemonServer : IAsyncDisposable
         }
 
         if (fallbackReason is not null)
-            ScheduleFullReload(fallbackReason);
+            _sync.ScheduleFullReload(fallbackReason);
 
-        RequeueForRetry(retry);
-    }
-
-    // Called only from the queue's flush callback; the queue runs one flush at a time.
-    private void RequeueForRetry(IReadOnlyList<string> retry)
-    {
-        var next = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var path in retry)
-        {
-            if (_retriedPaths.Contains(path))
-            {
-                Log($"File update error: cannot read {path}");
-                continue;
-            }
-
-            Log($"File update queued for retry: {path}");
-            next.Add(path);
-            _fileSetQueue?.Enqueue(path);
-        }
-
-        _retriedPaths = next;
+        _sync.RequeueForRetry(retry);
     }
 
     private void LogReconcileResult(ReconcileResult result)
@@ -2762,24 +2404,7 @@ public sealed class DaemonServer : IAsyncDisposable
             CancelIdleWatcherUnsafe();
         }
 
-        FileSystemWatcher? watcher, metadataWatcher;
-        lock (_watcherLock)
-        {
-            _watchersStopped = true;
-            (watcher, metadataWatcher) = (_watcher, _metadataWatcher);
-            (_watcher, _metadataWatcher) = (null, null);
-        }
-        watcher?.Dispose();
-        metadataWatcher?.Dispose();
-        // Wait for a running batch, so it never touches a disposed lock or workspace.
-        if (_fileSetQueue is not null)
-            await _fileSetQueue.DisposeAsync();
-        lock (_fullReloadLock)
-        {
-            _fullReloadDebounceCts?.Cancel();
-            _fullReloadDebounceCts?.Dispose();
-            _fullReloadDebounceCts = null;
-        }
+        await _sync.StopAsync();
         if (_startupLock is not null)
             await _startupLock.DisposeAsync();
         // Observe any in-flight background load so disposal never races it or

@@ -59,13 +59,13 @@ public sealed class DaemonRetryAndWatcherRecoveryTests
         await using var live = await StartWithWatcherTimingAsync(retryDelay: TimeSpan.FromMilliseconds(50));
         var away = BreakWatchedDirectory(live);
 
-        live.Server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("watcher died"));
+        live.Server.HandleWatcherError(WatcherKind.Source, new IOException("watcher died"));
 
-        Assert.False(live.Server.GetWatcher(DaemonServer.WatcherKind.Source)!.EnableRaisingEvents);
+        Assert.False(live.Server.GetWatcher(WatcherKind.Source)!.EnableRaisingEvents);
         Directory.Move(away, live.Root);
 
         await LiveSampleSolution.EventuallyAsync(
-            () => live.Server.GetWatcher(DaemonServer.WatcherKind.Source)!.EnableRaisingEvents);
+            () => live.Server.GetWatcher(WatcherKind.Source)!.EnableRaisingEvents);
         await LiveSampleSolution.EventuallyAsync(() => live.Server.LoadAttemptCount >= 2, TimeSpan.FromSeconds(60));
         await live.WaitLoadedAsync(expectedAttempts: 2);
 
@@ -80,14 +80,14 @@ public sealed class DaemonRetryAndWatcherRecoveryTests
         var away = BreakWatchedDirectory(live);
         try
         {
-            live.Server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("watcher died"));
+            live.Server.HandleWatcherError(WatcherKind.Source, new IOException("watcher died"));
             Assert.Equal(1, live.Server.PendingWatcherRetryCountForTesting);
 
             await live.Server.DisposeAsync();
             Directory.Move(away, live.Root);
             await Task.Delay(1000);
 
-            Assert.Null(live.Server.GetWatcher(DaemonServer.WatcherKind.Source));
+            Assert.Null(live.Server.GetWatcher(WatcherKind.Source));
         }
         finally
         {
@@ -103,13 +103,13 @@ public sealed class DaemonRetryAndWatcherRecoveryTests
         await using var live = await StartWithWatcherTimingAsync(retryDelay: TimeSpan.FromSeconds(5));
         var away = BreakWatchedDirectory(live);
 
-        live.Server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("first"));
-        live.Server.HandleWatcherError(DaemonServer.WatcherKind.Source, new IOException("second"));
+        live.Server.HandleWatcherError(WatcherKind.Source, new IOException("first"));
+        live.Server.HandleWatcherError(WatcherKind.Source, new IOException("second"));
         Assert.Equal(1, live.Server.PendingWatcherRetryCountForTesting);
 
         // A different watcher kind has its own retry.
-        live.Server.GetWatcher(DaemonServer.WatcherKind.Tree)!.EnableRaisingEvents = false;
-        live.Server.HandleWatcherError(DaemonServer.WatcherKind.Tree, new IOException("tree"));
+        live.Server.GetWatcher(WatcherKind.Tree)!.EnableRaisingEvents = false;
+        live.Server.HandleWatcherError(WatcherKind.Tree, new IOException("tree"));
         Assert.Equal(2, live.Server.PendingWatcherRetryCountForTesting);
 
         Directory.Move(away, live.Root);
@@ -125,7 +125,7 @@ public sealed class DaemonRetryAndWatcherRecoveryTests
     /// <summary>Stops the source watcher and moves the watched directory away, so a recreate must fail.</summary>
     private static string BreakWatchedDirectory(LiveSampleSolution live)
     {
-        live.Server.GetWatcher(DaemonServer.WatcherKind.Source)!.EnableRaisingEvents = false;
+        live.Server.GetWatcher(WatcherKind.Source)!.EnableRaisingEvents = false;
         var away = live.Root + ".away";
         Directory.Move(live.Root, away);
         return away;
