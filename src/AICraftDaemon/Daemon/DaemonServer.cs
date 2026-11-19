@@ -6,6 +6,7 @@ using Models = DotnetAICraft.Models;
 using DotnetAICraft.Output;
 using DotnetAICraft.Roslyn;
 using DotnetAICraft.Commands.Definition;
+using DotnetAICraft.Daemon.FileSetSync;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
@@ -22,7 +23,6 @@ public sealed class DaemonServer : IAsyncDisposable
     private readonly string _solutionPath;
     private readonly DaemonStartupLock? _startupLock;
     private readonly CancellationTokenSource _cts = new();
-    private readonly object _metadataReloadLock = new();
     private MSBuildWorkspace? _workspace;
     private Solution? _solution;
     private DateTime _loadedAt;
@@ -33,11 +33,18 @@ public sealed class DaemonServer : IAsyncDisposable
     // writes happen under _solutionLock; volatile guarantees readers see the
     // latest transition without taking the lock.
     private volatile DaemonLoadState _loadState = DaemonLoadState.Unloaded;
-    private FileSystemWatcher? _watcher;
-    private FileSystemWatcher? _metadataWatcher;
-    private CancellationTokenSource? _metadataReloadDebounceCts;
+    // Watchers, file-set queue and debounced full reload. This class keeps the
+    // solution, the workspace and _solutionLock; the coordinator never touches them.
+    private readonly WorkspaceSyncCoordinator _sync;
+    private readonly SolutionFileSetReconciler _reconciler;
+    private bool _backgroundLoadsStopped; // guarded by _backgroundLoadLock
+    // Files whose owner the reconciler could not decide, waiting for the next full
+    // load, and files that the last full load left out although they were on
+    // disk. Both guarded by _solutionLock.
+    private readonly HashSet<string> _pendingFallbackPaths = new(StringComparer.Ordinal);
+    private HashSet<string> _excludedByLastLoad = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _solutionLock = new(1, 1);
-    private readonly SemaphoreSlim _metadataReloadSingleFlight = new(1, 1);
+    private int _loadAttempts;
     // Tracks the in-flight (or last) accept-then-load task so reload can run the
     // load in the background instead of blocking the request, and so shutdown can
     // observe it. Guarded by _backgroundLoadLock.
@@ -106,7 +113,66 @@ public sealed class DaemonServer : IAsyncDisposable
     {
         _solutionPath = Path.GetFullPath(solutionPath);
         _loadedAt = _startedAt;
+        _reconciler = new SolutionFileSetReconciler(WatchRoot);
+        _sync = new WorkspaceSyncCoordinator(
+            WatchRoot,
+            ApplyFileSetBatchAsync,
+            onCompleted => StartBackgroundLoad(onCompleted),
+            IsAcceptingWork,
+            Log);
     }
+
+    /// <summary>Delay before a scheduled full reload starts; coalesces bursts of triggers.</summary>
+    internal TimeSpan FullReloadDebounce { get => _sync.FullReloadDebounce; init => _sync.FullReloadDebounce = value; }
+
+    /// <summary>Upper bound for postponing a scheduled full reload by new triggers.</summary>
+    internal TimeSpan FullReloadMaxDelay { get => _sync.FullReloadMaxDelay; init => _sync.FullReloadMaxDelay = value; }
+
+    /// <summary>Delay before a failed watcher recreate is tried again.</summary>
+    internal TimeSpan WatcherRecreateRetryDelay { get => _sync.WatcherRecreateRetryDelay; init => _sync.WatcherRecreateRetryDelay = value; }
+
+    /// <summary>Base delay of the exponential backoff between automatic full reload retries.</summary>
+    internal TimeSpan FullReloadRetryBaseDelay { get => _sync.FullReloadRetryBaseDelay; init => _sync.FullReloadRetryBaseDelay = value; }
+
+    /// <summary>Retries after a failed automatic full reload, before the daemon gives up.</summary>
+    internal const int MaxFullReloadRetries = WorkspaceSyncCoordinator.MaxFullReloadRetries;
+
+    /// <summary>Trailing debounce of the file-set queue.</summary>
+    internal TimeSpan FileSetDebounce { get => _sync.FileSetDebounce; init => _sync.FileSetDebounce = value; }
+
+    /// <summary>Number of solution load attempts (cold start and every reload).</summary>
+    internal int LoadAttemptCount => Volatile.Read(ref _loadAttempts);
+
+    /// <summary>Test seam: when set, each load waits for this task after it takes _solutionLock.</summary>
+    internal Task? LoadGateForTesting { get; set; }
+
+    /// <summary>Test seam: runs in rename after the preview and before _solutionLock is taken.</summary>
+    internal Func<Task>? BeforeRenameApplyForTesting { get; set; }
+
+    /// <summary>Number of watcher recreate retries that wait for their delay.</summary>
+    internal int PendingWatcherRetryCountForTesting
+    {
+        get => _sync.PendingWatcherRetryCount;
+    }
+
+    internal int FullReloadRetryCountForTesting
+    {
+        get => _sync.FullReloadRetryCount;
+    }
+
+    internal FileSystemWatcher? GetWatcher(WatcherKind kind) => _sync.GetWatcher(kind);
+
+    internal void HandleWatcherError(WatcherKind kind, Exception? error) => _sync.HandleWatcherError(kind, error);
+
+    internal void HandleWatcherError(WatcherKind kind, FileSystemWatcher? sender, Exception? error) => _sync.HandleWatcherError(kind, sender, error);
+
+    internal void ScheduleFullReload(string reason) => _sync.ScheduleFullReload(reason);
+
+    internal static bool IsMetadataReloadCandidate(string? path) => WorkspaceSyncCoordinator.IsMetadataReloadCandidate(path);
+
+    internal Task GetBackgroundLoadTaskForTesting() => GetBackgroundLoadTask();
+
+    internal Solution? CurrentSolutionForTesting => _solution;
 
     public DaemonServer(string solutionPath, DaemonIdleTimeoutSetting? idleTimeout)
         : this(solutionPath)
@@ -145,16 +211,7 @@ public sealed class DaemonServer : IAsyncDisposable
             File.SetUnixFileMode(socketPath,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-        StartFileWatcher();
-        StartMetadataWatcher();
-
-        // Accept-then-load: serve connections (and answer `status`) while the
-        // solution loads on a background task, instead of blocking the accept
-        // loop on the initial load. StartBackgroundLoad sets Loading synchronously
-        // before the task acquires _solutionLock, so an early `status` poll never
-        // observes the initial Unloaded.
-        Log($"Starting background solution load: {_solutionPath}");
-        StartBackgroundLoad();
+        StartWorkspaceServices();
 
         Log($"Daemon accepting connections. Socket: {socketPath}");
 
@@ -176,6 +233,23 @@ public sealed class DaemonServer : IAsyncDisposable
         // never races an in-flight load or leaves an unobserved task.
         await GetBackgroundLoadTask();
         if (File.Exists(socketPath)) File.Delete(socketPath);
+    }
+
+    /// <summary>
+    /// Starts the file-set queue, both watchers and the background solution load.
+    /// Everything RunAsync needs except the socket, so tests can run it alone.
+    /// </summary>
+    internal void StartWorkspaceServices()
+    {
+        _sync.Start();
+
+        // Accept-then-load: serve connections (and answer `status`) while the
+        // solution loads on a background task, instead of blocking the accept
+        // loop on the initial load. StartBackgroundLoad sets Loading synchronously
+        // before the task acquires _solutionLock, so an early `status` poll never
+        // observes the initial Unloaded.
+        Log($"Starting background solution load: {_solutionPath}");
+        StartBackgroundLoad();
     }
 
     // ── Request handling ──────────────────────────────────────────────────────
@@ -564,27 +638,72 @@ public sealed class DaemonServer : IAsyncDisposable
 
         if (result.Applied)
         {
+            if (BeforeRenameApplyForTesting is { } beforeApply)
+                await beforeApply();
+
             await _solutionLock.WaitAsync(ct);
             try
             {
-                var symbolName = symbol;
-                ISymbol resolved = symbolName is not null
-                    ? await SymbolResolver.FromFullNameAsync(solution, symbolName, ct)
-                    : await SymbolResolver.FromLocationAsync(solution,
+                // Take the snapshot under the lock: a file-set batch applied since
+                // the preview must not be overwritten by this assignment.
+                var current = GetSolution();
+                var workspace = _workspace!;
+
+                // _workspace.CurrentSolution is not the source of truth after the
+                // in-memory file-set sync: added or removed documents exist only in
+                // _solution. TryApplyChanges applies the whole difference, so
+                // MSBuildWorkspace could write files or edit project files. Reload
+                // instead and let the agent retry on a consistent solution.
+                if (!HaveSameDocumentSet(current, workspace.CurrentSolution))
+                {
+                    Log("Full reload: rename: in-memory document set differs");
+                    StartBackgroundLoad();
+                    throw CreateSolutionLoadingException();
+                }
+
+                ISymbol resolved = symbol is not null
+                    ? await SymbolResolver.FromFullNameAsync(current, symbol, ct)
+                    : await SymbolResolver.FromLocationAsync(current,
                         GetRequiredString(p, "file"),
                         GetRequiredInt(p, "line"),
                         GetRequiredInt(p, "col"), ct);
 
                 var appliedSolution = await Renamer.RenameSymbolAsync(
-                    solution, resolved, new SymbolRenameOptions(), newName, ct);
+                    current, resolved, new SymbolRenameOptions(), newName, ct);
 
-                _workspace!.TryApplyChanges(appliedSolution);
-                _solution = _workspace.CurrentSolution;
+                try
+                {
+                    workspace.TryApplyChanges(appliedSolution);
+                }
+                catch (Exception ex)
+                {
+                    // Some files may already be written; reload to match the disk.
+                    Log($"Full reload: rename: apply failed: {ex.Message}");
+                    StartBackgroundLoad();
+                    throw;
+                }
+
+                _solution = workspace.CurrentSolution;
             }
             finally { _solutionLock.Release(); }
         }
 
         return result;
+    }
+
+    // By DocumentId, not by path: a file deleted and re-created gets a new
+    // DocumentId, and TryApplyChanges would see that as a remove plus an add.
+    private static bool HaveSameDocumentSet(Solution left, Solution right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+
+        static HashSet<(DocumentId Id, string? FilePath)> Keys(Solution solution)
+            => solution.Projects
+                .SelectMany(project => project.Documents.Select(document => (document.Id, document.FilePath)))
+                .ToHashSet();
+
+        return Keys(left).SetEquals(Keys(right));
     }
 
     private async Task<IReadOnlyList<Models.SymbolMatchGroup<IReadOnlyList<Models.SymbolResult>>>> HandleImplsAsync(DaemonRequest req, CancellationToken ct)
@@ -735,19 +854,24 @@ public sealed class DaemonServer : IAsyncDisposable
     // silently piggy-backing on an older load that may predate the user's edit.
     // _solutionLock still serializes the actual load against file-change and
     // metadata-watcher reloads; awaiting the chain tail observes every queued load.
-    private DaemonLoadState StartBackgroundLoad()
+    private DaemonLoadState StartBackgroundLoad(Action<bool>? onCompleted = null)
     {
         lock (_backgroundLoadLock)
         {
+            // After DisposeAsync took the chain tail, no new load may start: it
+            // would use the disposed lock or leak a workspace.
+            if (_backgroundLoadsStopped)
+                return _loadState;
+
             // Set Loading synchronously so an immediate `status` poll never
             // observes the pre-reload state before the task acquires _solutionLock.
             _loadState = DaemonLoadState.Loading;
-            _backgroundLoadTask = RunLoadAfterAsync(_backgroundLoadTask);
+            _backgroundLoadTask = RunLoadAfterAsync(_backgroundLoadTask, onCompleted);
             return DaemonLoadState.Loading;
         }
     }
 
-    private async Task RunLoadAfterAsync(Task prior)
+    private async Task RunLoadAfterAsync(Task prior, Action<bool>? onCompleted)
     {
         // Offload past the lock so the load never executes inline on the request
         // thread (TryLoadSolutionAsync runs synchronously until its first
@@ -756,7 +880,8 @@ public sealed class DaemonServer : IAsyncDisposable
         // The prior load swallows its own exceptions; guard anyway so a faulted
         // prior never breaks the chain.
         try { await prior.ConfigureAwait(false); } catch { /* prior owns its errors */ }
-        await TryLoadSolutionAsync().ConfigureAwait(false);
+        var loaded = await TryLoadSolutionAsync().ConfigureAwait(false);
+        onCompleted?.Invoke(loaded);
     }
 
     private Task GetBackgroundLoadTask()
@@ -995,6 +1120,7 @@ public sealed class DaemonServer : IAsyncDisposable
         try
         {
             _lastLoadAttemptAt = DateTime.UtcNow;
+            Interlocked.Increment(ref _loadAttempts);
 
             _workspace?.Dispose();
             _workspace = null;
@@ -1004,9 +1130,13 @@ public sealed class DaemonServer : IAsyncDisposable
             // launching the cold-start load task; both set the same value.
             _loadState = DaemonLoadState.Loading;
 
+            if (LoadGateForTesting is { } gate)
+                await gate;
+
             var (workspace, solution) = await WorkspaceLoader.LoadAsync(_solutionPath);
             _workspace = workspace;
             _solution = solution;
+            UpdateExcludedByLastLoad(solution);
             _loadedAt = DateTime.UtcNow;
             _loadState = DaemonLoadState.Loaded;
             _lastLoadError = null;
@@ -1030,25 +1160,27 @@ public sealed class DaemonServer : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// After a full load, a file that caused a fallback and is on disk but not
+    /// in the solution is not compiled (MSBuild decided). Remember it, so the
+    /// next save of that file does not trigger another full reload. Caller holds _solutionLock.
+    /// </summary>
+    private void UpdateExcludedByLastLoad(Solution solution)
+    {
+        _excludedByLastLoad = _excludedByLastLoad
+            .Concat(_pendingFallbackPaths)
+            .Where(path => File.Exists(path) && !SolutionFileSetReconciler.ContainsDocument(solution, path))
+            .ToHashSet(StringComparer.Ordinal);
+        _pendingFallbackPaths.Clear();
+    }
+
     private Solution GetSolution()
     {
         if (_solution is not null)
             return _solution;
 
         if (_loadState == DaemonLoadState.Loading)
-        {
-            throw new DaemonValidationException(new ErrorInfo(
-                "SOLUTION_LOADING",
-                "Solution is still loading.",
-                new
-                {
-                    solutionPath = _solutionPath,
-                    loadState = "loading",
-                    startedLoadingAt = _lastLoadAttemptAt,
-                    retryable = true,
-                    hint = "The daemon is loading the solution; retry shortly."
-                }));
-        }
+            throw CreateSolutionLoadingException();
 
         throw new DaemonValidationException(new ErrorInfo(
             "SOLUTION_UNAVAILABLE",
@@ -1062,167 +1194,113 @@ public sealed class DaemonServer : IAsyncDisposable
             }));
     }
 
+    private DaemonValidationException CreateSolutionLoadingException()
+        => new(new ErrorInfo(
+            "SOLUTION_LOADING",
+            "Solution is still loading.",
+            new
+            {
+                solutionPath = _solutionPath,
+                loadState = "loading",
+                startedLoadingAt = _lastLoadAttemptAt,
+                retryable = true,
+                hint = "The daemon is loading the solution; retry shortly."
+            }));
+
     private static string GetSolutionDir(Solution solution)
         => Path.GetDirectoryName(solution.FilePath) ?? string.Empty;
 
     // ── File watching ─────────────────────────────────────────────────────────
+    //
+    // Two watchers feed one batched queue (FileSetChangeQueue). The reconciler
+    // compares the final on-disk state of each queued path with the in-memory
+    // solution and returns a new Solution, which is stored with one assignment.
+    // Anything the reconciler cannot decide safely, metadata changes and watcher
+    // errors become a full reload through StartBackgroundLoad.
 
-    private void StartFileWatcher()
+    private string WatchRoot => Path.GetDirectoryName(_solutionPath)!;
+
+    private bool IsAcceptingWork()
     {
-        var dir = Path.GetDirectoryName(_solutionPath)!;
-        _watcher = new FileSystemWatcher(dir, "*.cs")
-        {
-            IncludeSubdirectories = true,
-            EnableRaisingEvents   = true,
-            NotifyFilter          = NotifyFilters.LastWrite | NotifyFilters.FileName
-        };
-
-        var debounce = new Dictionary<string, CancellationTokenSource>();
-        var debounceLock = new object();
-
-        async void OnChange(object _, FileSystemEventArgs e)
-        {
-            if (IsBuildArtifactPath(e.FullPath)) return;
-
-            CancellationTokenSource cts;
-            lock (debounceLock)
-            {
-                if (debounce.TryGetValue(e.FullPath, out var old)) old.Cancel();
-                cts = debounce[e.FullPath] = new CancellationTokenSource();
-            }
-            try
-            {
-                await Task.Delay(400, cts.Token);
-                await ApplyFileChangeAsync(e.FullPath);
-            }
-            catch (TaskCanceledException) { }
-        }
-
-        _watcher.Changed += OnChange;
-        _watcher.Created += OnChange;
+        lock (_idleLock)
+            return _lifecycleState == DaemonLifecycleState.Running;
     }
 
-    private static bool IsBuildArtifactPath(string fullPath)
+    /// <summary>
+    /// Flush callback of the file-set queue. Runs the reconciler under
+    /// _solutionLock and stores the result with one assignment, so request
+    /// handlers (which read the solution once per request) see either the old or
+    /// the new snapshot, never a mix.
+    /// </summary>
+    private async Task ApplyFileSetBatchAsync(FileSetBatch batch)
     {
-        // Skip build outputs (obj/, bin/) and auto-generated XAML codebehind (*.g.cs).
-        // These regenerate during MSBuild design-time build (which Roslyn runs on solution load)
-        // and don't represent user edits — propagating them as WithDocumentText updates produces
-        // a noisy cascade and treats build artifacts as source-of-truth.
-        var sep = Path.DirectorySeparatorChar;
-        var alt = Path.AltDirectorySeparatorChar;
-        var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
-        if (fullPath.Contains($"{sep}obj{sep}", cmp) || fullPath.Contains($"{alt}obj{alt}", cmp) ||
-            fullPath.Contains($"{sep}bin{sep}", cmp) || fullPath.Contains($"{alt}bin{alt}", cmp))
-            return true;
-
-        var name = Path.GetFileName(fullPath);
-        return name.EndsWith(".g.cs", cmp) || name.EndsWith(".g.i.cs", cmp);
-    }
-
-    private void StartMetadataWatcher()
-    {
-        var dir = Path.GetDirectoryName(_solutionPath)!;
-        _metadataWatcher = new FileSystemWatcher(dir)
-        {
-            IncludeSubdirectories = true,
-            EnableRaisingEvents = true,
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
-        };
-
-        void OnMetadataChange(object _, FileSystemEventArgs e)
-        {
-            if (!IsMetadataReloadCandidate(e.FullPath))
-                return;
-
-            ScheduleMetadataReload();
-        }
-
-        _metadataWatcher.Changed += OnMetadataChange;
-        _metadataWatcher.Created += OnMetadataChange;
-        _metadataWatcher.Renamed += (_, e) =>
-        {
-            if (IsMetadataReloadCandidate(e.FullPath) || IsMetadataReloadCandidate(e.OldFullPath))
-                ScheduleMetadataReload();
-        };
-    }
-
-    private static bool IsMetadataReloadCandidate(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-
-        var fileName = Path.GetFileName(path);
-        if (string.Equals(fileName, "Directory.Build.props", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(fileName, "Directory.Build.targets", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var ext = Path.GetExtension(path);
-        return ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase) ||
-               ext.Equals(".fsproj", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ScheduleMetadataReload()
-    {
-        CancellationTokenSource cts;
-        lock (_metadataReloadLock)
-        {
-            _metadataReloadDebounceCts?.Cancel();
-            _metadataReloadDebounceCts?.Dispose();
-            _metadataReloadDebounceCts = new CancellationTokenSource();
-            cts = _metadataReloadDebounceCts;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(500), cts.Token);
-                await TriggerMetadataReloadAsync(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }, CancellationToken.None);
-    }
-
-    private async Task TriggerMetadataReloadAsync(CancellationToken ct)
-    {
-        if (!await _metadataReloadSingleFlight.WaitAsync(0, ct))
-            return;
+        string? fallbackReason = null;
+        IReadOnlyList<string> retry = [];
 
         try
         {
-            await TryLoadSolutionAsync(ct);
+            await _solutionLock.WaitAsync();
+        }
+        catch (ObjectDisposedException)
+        {
+            return; // daemon is shutting down
+        }
+
+        try
+        {
+            // Loading: TryLoadSolutionAsync holds _solutionLock for the whole load,
+            // so Loading seen here means a queued load that will read the disk anyway.
+            if (_loadState != DaemonLoadState.Loaded || _solution is not { } solution)
+            {
+                Log($"File set sync skipped: solution is {_loadState.ToString().ToLowerInvariant()}");
+                return;
+            }
+
+            var result = await _reconciler.ReconcileAsync(solution, batch, CancellationToken.None, _excludedByLastLoad);
+            if (result.Outcome == ReconcileOutcome.Applied)
+            {
+                _solution = result.Solution;
+            }
+            else if (result.Outcome == ReconcileOutcome.Fallback)
+            {
+                fallbackReason = result.FallbackReason;
+                _pendingFallbackPaths.UnionWith(result.FallbackPaths);
+            }
+
+            LogReconcileResult(result);
+            retry = result.Retry;
+        }
+        catch (Exception ex)
+        {
+            Log($"File set sync error: {ex.Message}");
+            fallbackReason = $"file set sync error: {ex.GetType().Name}";
         }
         finally
         {
-            _metadataReloadSingleFlight.Release();
+            _solutionLock.Release();
         }
+
+        if (fallbackReason is not null)
+            _sync.ScheduleFullReload(fallbackReason);
+
+        _sync.RequeueForRetry(retry);
     }
 
-    private async Task ApplyFileChangeAsync(string filePath)
+    private void LogReconcileResult(ReconcileResult result)
     {
-        await _solutionLock.WaitAsync();
-        try
-        {
-            var solution = GetSolution();
-            var docIds   = solution.GetDocumentIdsWithFilePath(filePath);
-            if (docIds.IsEmpty) return;
+        var root = WatchRoot;
+        string Relative(string path) => Path.GetRelativePath(root, path);
 
-            var content = await File.ReadAllTextAsync(filePath);
-            // Guard against empty reads during concurrent writes (e.g. build tools flushing)
-            if (string.IsNullOrEmpty(content)) return;
-
-            var newText = SourceText.From(content, Encoding.UTF8);
-            // Update in-memory solution only — do NOT call TryApplyChanges, which writes back to disk
-            _solution = solution.WithDocumentText(docIds.First(), newText);
-            Log($"Updated: {Path.GetFileName(filePath)}");
-        }
-        catch (Exception ex) { Log($"File update error: {ex.Message}"); }
-        finally { _solutionLock.Release(); }
+        foreach (var path in result.Removed)
+            Log($"Removed: {Relative(path)}");
+        foreach (var added in result.Added)
+            Log($"Added: {Relative(added.Path)} → {added.ProjectName}");
+        foreach (var path in result.Updated)
+            Log($"Updated: {Relative(path)}");
+        foreach (var skipped in result.Skipped)
+            Log($"Ignored: {skipped}");
+        if (result.FallbackReason is { } reason)
+            Log($"Fallback: {reason}");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -2326,23 +2404,21 @@ public sealed class DaemonServer : IAsyncDisposable
             CancelIdleWatcherUnsafe();
         }
 
-        _watcher?.Dispose();
-        _metadataWatcher?.Dispose();
-        lock (_metadataReloadLock)
-        {
-            _metadataReloadDebounceCts?.Cancel();
-            _metadataReloadDebounceCts?.Dispose();
-            _metadataReloadDebounceCts = null;
-        }
+        await _sync.StopAsync();
         if (_startupLock is not null)
             await _startupLock.DisposeAsync();
         // Observe any in-flight background load so disposal never races it or
         // leaves an unobserved task (TryLoadSolutionAsync swallows its own errors).
-        try { await GetBackgroundLoadTask(); } catch { /* best-effort */ }
+        Task backgroundLoad;
+        lock (_backgroundLoadLock)
+        {
+            _backgroundLoadsStopped = true;
+            backgroundLoad = _backgroundLoadTask;
+        }
+        try { await backgroundLoad; } catch { /* best-effort */ }
         _cts.Dispose();
         _workspace?.Dispose();
         _solutionLock.Dispose();
-        _metadataReloadSingleFlight.Dispose();
     }
 }
 

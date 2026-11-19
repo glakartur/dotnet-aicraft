@@ -96,8 +96,10 @@ methods a name-grep silently misses, so you don't act on an incomplete list.
 
 ## Keeping the daemon in sync
 
-Code edits are picked up automatically. Adding or removing a project is not — until you reload,
-queries answer against the old project set (a silent wrong answer, not an error):
+Edits and added, deleted, renamed or moved `.cs` files are picked up automatically. Project and
+solution changes (`.sln`, `.slnx`, `.csproj`, `Directory.*.props`) trigger an automatic reload
+(`SOLUTION_LOADING` until done). `rename` right after adding or deleting a file can return
+`SOLUTION_LOADING` — retry it. If results look stale (network drive, WSL2 `/mnt`), reload:
 
 ```bash
 dotnet aicraft server reload   # -s <path> only if auto-discovery is ambiguous
